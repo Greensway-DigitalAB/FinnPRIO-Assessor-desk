@@ -1,0 +1,12 @@
+shiny
+shinyjs
+shinyFiles
+shinyalert
+shinyWidgets
+DT
+DBI
+RSQLite
+tidyverse
+glue
+jsonlite
+mc2d
