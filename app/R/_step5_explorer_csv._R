@@ -1,0 +1,240 @@
+# -----------------------------------------------------------------------------------------------
+# This code reads FinnPRIO-GUI files, selects columns and writes .csv files for FinnPRIO-Explorer
+# -----------------------------------------------------------------------------------------------
+
+library(readxl)
+library(tidyverse)
+library(here)
+library(data.table)
+
+#------------------------------------------------------------------------------------
+# Notes for the code below:
+# - Reads specific sheet either by position or by name; Finds specific columns (and rows). 
+# - To select specific pests (row), write the 'row number - 1'
+# - The column numbers are in the order they should be in the .csv file for FinnPRIO-Explorer.
+#------------------------------------------------------------------------------------
+
+
+############################################################################################
+
+# I. SELECTION OF DATA FROM THE GUI-FILE THAT IS NEEDED FOR THE APP AND FOR PREPARING NEW DATASETS:----
+
+############################################################################################
+
+#----------------------------------
+# 1. For the text answers of the questions:----
+#----------------------------------
+
+new_dataset_answers <- read_excel("FinnPRIO_GUI_version2.xlsm", 
+                                  sheet = "Assessment database",  
+                                  col_names = TRUE)[-1,c(157, #pest name
+                                                         229:349)] #text answers
+
+
+#Transpose the Data Frame
+new_dataset_answers <- as.data.frame(t(new_dataset_answers))
+
+#move the first row to the data frame header with janitor
+new_dataset_answers <- janitor::row_to_names(new_dataset_answers, 1, remove_rows_above = FALSE) 
+
+
+#----------------------------------
+# 2. For the basic data of the assessed pest species:----
+#----------------------------------
+
+new_dataset_data <- read_excel("FinnPRIO_GUI_version2.xlsm", 
+                               sheet = "Assessment database", 
+                               col_names = TRUE)[-1,c(157, #pest name
+                                                      151, 148, 152, 154, 184, #additional pest data
+                                                      181, 170, 182:183, #forestry
+                                                      166:169, #open field
+                                                      171:176)] #greenhouse & others
+
+new_dataset_data <- rename(new_dataset_data, 
+                           assessment_date = "Date for Shiny",
+                           tuhoojaryhma = "Pest group",
+                           tuhoojastatus_eu_2016_2031_mukaan = "Quarantine status",
+                           eppo_code = "EPPO code",
+                           tuhooja = "Species",
+                           peruna_uh = "Potato",
+                           sokerijuurikas_uh = "Sugar beet",
+                           avomaavihannekset_uh = "Vegetables",
+                           muut_avomaakasvit_uh = "Other arable crops",
+                           havukasvit_uh = "Conifers",
+                           kasvihuonekurkku_uh = "Cucumber",
+                           kasvihuonetomaatti_uh = "Tomato",
+                           kasvihuonepaprika_uh = "Pepper",
+                           kasvihuonesalaatti_uh = "Lettuce",
+                           kasvihuonekoristekasvit_uh = "Greenhouse ornamentals",
+                           muut_uh = "Others",
+                           lehtipuut_ja_pensaat_uh = "Broadleaves",
+                           hedelmapuut_uh = "Fruits",
+                           marjakasvit_uh = "Berries",
+                           esiintyyko_tuhooja_euroopassa = "Presence in Europe"
+)
+
+
+#----------------------------------
+# 3. For the simulation results of the assessed pest species:----
+#----------------------------------
+
+new_dataset_scores <- read_excel("FinnPRIO_GUI_version2.xlsm", 
+                                 sheet = "Simulation results", 
+                                 col_names = TRUE)[,c(2, #pest name
+                                                      18,19,20, #entry-B
+                                                      26,27,28, #establishment
+                                                      42,43,44, #invasion-B
+                                                      50,51,52, #impact
+                                                      59,67,75  #management
+                                 )] 
+
+new_dataset_scores <- rename(new_dataset_scores, 
+                             maahantulo_hallinnan_kanssa_25_prosenttipiste = "ENTRY-B_25 percentile",
+                             maahantulo_hallinnan_kanssa_mediaani = "ENTRY-B_MEDIAN",
+                             maahantulo_hallinnan_kanssa_75_prosenttipiste = "ENTRY-B_75 percentile",
+                             asettuminen_ja_leviaminen_25_prosenttipiste = "ESTABLISHMENT_25 percentile",
+                             asettuminen_ja_leviaminen_mediaani = "ESTABLISHMENT_MEDIAN",
+                             asettuminen_ja_leviaminen_75_prosenttipiste = "ESTABLISHMENT_75 percentile",
+                             invaasion_todennakoisyys_hallinnan_kanssa_25_prosenttipiste = "INVASION-B_25 percentile",
+                             invaasion_todennakoisyys_hallinnan_kanssa_mediaani = "INVASION-B_MEDIAN",
+                             invaasion_todennakoisyys_hallinnan_kanssa_75_prosenttipiste = "INVASION-B_75 percentile",
+                             vaikutukst_25_prosenttipiste = "IMPACT_25 percentile",
+                             vaikutukst_mediaani = "IMPACT_MEDIAN",
+                             vaikutukst_75_prosenttipiste = "IMPACT_75 percentile",
+                             maahantulon_hallittavuus_mediaani = "PREVENTABILITY_MEDIAN",
+                             leviamisen_hallittavuus_mediaani = "CONTROLLABILITY_MEDIAN",
+                             hallittavuus_mediaani = "MANAGEABILITY_MEDIAN")
+
+
+# Change all '0' (zero) and '1' (one) scores to '0,0001' and '0,9999', respectively. 
+# This should be done, because there is a problem when Shiny-code reads 0 and 1:
+new_dataset_scores[new_dataset_scores == 0] <- 0.0001
+new_dataset_scores[new_dataset_scores == 1] <- 0.9999
+
+
+############################################################################################
+
+# II. WRITING CSV-FILES:----
+
+############################################################################################
+
+#----------------------------------
+# 1. Write .csv files from the new_datasets (which will be used to compile the final .csv for Explorer):----
+#----------------------------------
+
+write.csv(new_dataset_data, here("csv_new_dataset_for_Explorer",
+                                 "Assessment_data.csv"), 
+          row.names = FALSE)
+
+
+write.csv(new_dataset_scores, here("csv_new_dataset_for_Explorer",
+                                   "Simulation_scores.csv"), 
+          row.names = FALSE)
+
+
+write.csv(new_dataset_answers,here("csv_new_dataset_for_Explorer",
+                                   "Assessment_answers.csv"), 
+          row.names = FALSE)
+
+
+# --------------------------------------------------------------------------------
+# 2. Write the csv file for compare pests by questions in FinnPRIO-Explorer, i.e. 'pestquestions_est3.csv':----
+# --------------------------------------------------------------------------------
+
+df3 <- read.csv(here("csv_new_dataset_for_Explorer",
+                     "Assessment_answers.csv"), 
+                header=TRUE, check.names=FALSE, stringsAsFactors=FALSE)
+
+df4 <- read.csv(here("csv_new_dataset_for_Explorer",
+                     "Assessment_questions.csv"), 
+                header=TRUE, check.names=FALSE, stringsAsFactors=FALSE, 
+                fileEncoding="UTF-8-BOM" # "This removes the BOM if present in the file (common for files generated from Microsoft applications: Excel, SQL server)"
+                )
+
+df5 <- as.data.frame(bind_cols(df4,df3))
+
+
+write.csv(df5,here("FinnPRIO-Explorer",
+                   "data",
+                   "pestquestions_est3.csv"), 
+          row.names = FALSE)
+
+
+# --------------------------------------------------------------------------------
+# 3. Write the csv file for plot and data table in FinnPRIO-Explorer, i.e. 'cleanfinnprioresults.csv':----
+# --------------------------------------------------------------------------------
+
+df1 <- read.csv(here("csv_new_dataset_for_Explorer",
+                     "Assessment_data.csv"), 
+                header=TRUE, check.names=FALSE, stringsAsFactors=FALSE)
+
+df2 <- read.csv(here("csv_new_dataset_for_Explorer",
+                     "Simulation_scores.csv"), 
+                header=TRUE, check.names=FALSE, stringsAsFactors=FALSE)
+
+df6 <- as.data.frame(bind_cols(df1,df2))
+
+write.csv(df6,here("FinnPRIO-Explorer",
+                   "data",
+                   "cleanfinnprioresults.csv"), 
+          row.names = FALSE)
+
+
+
+
+
+
+
+# -----------------------------------------------------------------------------------------------
+# Prepare the hv.csv for FinnPRIO-Explorer
+# Combine the data from all '_hv.csv' files, taking 'Rank' and 'HV' scores; and pest names and quarantine status
+# -----------------------------------------------------------------------------------------------
+
+
+df1 <- read.csv(here("csv_for_hypervolume_calculations",
+                     "species.csv"), 
+                header=TRUE, check.names=FALSE, stringsAsFactors=FALSE)
+
+df1a <- read.csv(here("csv_for_hypervolume_calculations",
+                      "qstat.csv"), 
+                 header=TRUE, check.names=FALSE, stringsAsFactors=FALSE)
+
+
+#
+# Read _hv.csv files and extract only Rank and HV columns -> data frame:----
+#
+
+df2 <- read.csv(here("csv_for_hypervolume_calculations",
+                     "ent_hv.csv"), 
+                header=TRUE, check.names=FALSE, stringsAsFactors=FALSE)[ ,c("Rank", "Hypervolume")]
+colnames(df2) <- c("rank_entry", "hv_entry")
+
+
+df3 <- read.csv(here("csv_for_hypervolume_calculations",
+                     "est_hv.csv"), 
+                header=TRUE, check.names=FALSE, stringsAsFactors=FALSE)[ ,c("Rank", "Hypervolume")]
+colnames(df3) <- c("rank_establishment", "hv_establishment")
+
+
+df4 <- read.csv(here("csv_for_hypervolume_calculations",
+                     "inv_hv.csv"), 
+                header=TRUE, check.names=FALSE, stringsAsFactors=FALSE)[ ,c("Rank", "Hypervolume")]
+colnames(df4) <- c("rank_invasion", "hv_invasion")
+
+
+df5 <- read.csv(here("csv_for_hypervolume_calculations",
+                     "imp_hv.csv"), 
+                header=TRUE, check.names=FALSE, stringsAsFactors=FALSE)[ ,c("Rank", "Hypervolume")]
+colnames(df5) <- c("rank_impact", "hv_impact")
+
+
+#
+# Write the hv.csv file for FinnPRIO-Explorer:----
+#
+
+df6 <- as.data.frame(bind_cols(df1,df1a,df2,df3,df4,df5))
+
+write.csv(df6,here("FinnPRIO-Explorer",
+                   "data",
+                   "hv.csv"), 
+          row.names = FALSE)

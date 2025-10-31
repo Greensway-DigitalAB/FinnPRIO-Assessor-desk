@@ -11,16 +11,16 @@ navbarPage("FinnPRIO-Assessor",
                                          DTOutput("assessments")
                                          ),
                                   column(4,
-                                         h3(strong("Filters"), style = "color:#7C6A56"),
-                                         selectInput("filter_pest", "Select Pest Species", 
-                                                     choices = NULL),
-                                         selectInput("filter_assessor", "Select User", 
-                                                     choices = NULL),
-                                         checkboxGroupInput("filter_entry_path",
-                                                            label = "Select entry pathways",
-                                                            choices = NULL,
-                                                            inline = FALSE),
-                                         br(),
+                                         # h3(strong("Filters"), style = "color:#7C6A56"),
+                                         # selectInput("filter_pest", "Select Pest Species", 
+                                         #             choices = NULL),
+                                         # selectInput("filter_assessor", "Select User", 
+                                         #             choices = NULL),
+                                         # checkboxGroupInput("filter_entry_path",
+                                         #                    label = "Select entry pathways",
+                                         #                    choices = NULL,
+                                         #                    inline = FALSE),
+                                         # br(),
                                          h4(strong("Create New Assessment"), style = "color:#7C6A56"),
                                          actionButton("new_ass", "Create Assessment")
                                   )
@@ -55,7 +55,13 @@ navbarPage("FinnPRIO-Assessor",
                                        z-index: 1000;    /* Ensures it stays on top */
                                        }")
                                    ),
-                                   actionButton("save", "Save Assessment")
+                                   actionButton("save", "Save Assessment") #,
+                                   # Autosave status text
+                                   # tags$div(
+                                   #   style = "margin-left: 20px;",
+                                   #   strong("Autosave Status: "),
+                                   #   textOutput("save_status", inline = TRUE)
+                                   # )
                                    
                                  ),
                                  uiOutput("questionarie")
@@ -94,7 +100,9 @@ navbarPage("FinnPRIO-Assessor",
             ),
             tabPanel("Instructions",
                      fluidPage(
-                       load_ui_content("ui/instructions.R"),
+                       # load_ui_content("ui/instructions.R"),
+                       includeHTML("www/instructions.html")
+                       # tags$iframe("www/instructions.html")
                      )
             ),
            header = tagList(
@@ -102,22 +110,18 @@ navbarPage("FinnPRIO-Assessor",
              useShinyjs(),
              tags$head(
                tags$link(rel = "shortcut icon", href = "./img/bug-slash-solid-full-gray.svg"),
+               # Include our custom CSS
+               tags$link(rel = "stylesheet", href = "styles.css")
              ),
              
              fluidRow(
                # style = "margin:20px; padding:10px; border:1px solid #ccc;",
                style = "margin:20px",
-               # column(width = 4,
                       uiOutput("file_input_ui"),
                       # uiOutput("file_path_ui")
                #        ),
-               # column(width = 2, #offset = 4,
                uiOutput("unload_db_ui")
-               # actionButton("unload_db", "Unload database", 
-               #                     style = "margin-top: 20px;")
-                      # actionButton("save", "Save Assessment")
-                      # )
-              ) 
+              )
              ),
            # footer = tagList(
            #   fluidRow(

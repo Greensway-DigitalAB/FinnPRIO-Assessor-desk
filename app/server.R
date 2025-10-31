@@ -1,6 +1,8 @@
 server <- function(input, output, session) {
   # Reactive values ####
   load <- reactiveValues(status = FALSE, timestamp = NULL)
+  save <- reactiveValues(status = "Idle", timestamp = NULL)
+  
   con <- reactiveVal()
   assessors <- reactiveValues(data = NULL)
   threats <- reactiveValues(data = NULL)
@@ -79,6 +81,7 @@ server <- function(input, output, session) {
     answers$main <- NULL
     answers$entry <- NULL
     load$status <- FALSE
+    load$timestamp <- NULL
     updateTabsetPanel(session, "all_assessments", selected = "1")
     # session$reload()
   })
@@ -128,7 +131,7 @@ server <- function(input, output, session) {
     req(db_path())
     load$status <- TRUE
     load$timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-    
+    save$status <- "Saved ✔️"
     # print(db_path())
     
     withProgress({
@@ -155,20 +158,20 @@ server <- function(input, output, session) {
         simulations$data <- dbReadTable(con(), "simulations")
         questions$main <- dbReadTable(con(), "questions")
         questions$entry <- dbReadTable(con(), "pathwayQuestions")
-        table2 <- dbReadTable(con(), "table2")
-        table3 <- dbReadTable(con(), "table3")
-        points$table2 <- table2 |> 
-          pivot_longer(-ENT3.ENT2,
-                       names_to = "ENT2", values_to = "Points") |> 
-          mutate(ENT2 = gsub("\\.", " ", ENT2)) |> 
-          rename(ENT3 = ENT3.ENT2)
-# table2_exp <<- points$table2
-        points$table3 <- table3 |> 
-          pivot_longer(-EST3.EST2,
-                       names_to = "EST2", values_to = "Points") |> 
-          mutate(EST2 = gsub("\\.", " ", EST2)) |> 
-          rename(EST3 = EST3.EST2)
-# table3_exp <<- points$table3
+        # table2 <- dbReadTable(con(), "table2")
+        # table3 <- dbReadTable(con(), "table3")
+#         points$table2 <- table2 |> 
+#           pivot_longer(-ENT3.ENT2,
+#                        names_to = "ENT2", values_to = "Points") |> 
+#           mutate(ENT2 = gsub("\\.", " ", ENT2)) |> 
+#           rename(ENT3 = ENT3.ENT2)
+# # table2_exp <<- points$table2
+#         points$table3 <- table3 |> 
+#           pivot_longer(-EST3.EST2,
+#                        names_to = "EST2", values_to = "Points") |> 
+#           mutate(EST2 = gsub("\\.", " ", EST2)) |> 
+#           rename(EST3 = EST3.EST2)
+# # table3_exp <<- points$table3
         
         points$main <- get_points_as_table(questions$main)
 # pointsmain_exp <<- points$main
@@ -541,12 +544,14 @@ server <- function(input, output, session) {
                           question <- quesEnt$question[x]
                           options <- quesEnt$list[x]
                           id <- quesEnt$number[x]
+                          info <- quesEnt$info[x]
                           just <- answers$main |> 
                             filter(idQuestion == quesEnt$idQuestion[x]) |> 
                             pull(justification)
                           # print(answers$main |> filter(idQuestion == quesEnt$idQuestion[x]))
                           tagList(
-                            h4(glue("ENT {id}: {question}")),
+                            h4(glue("ENT {id}: {question}"), 
+                               tags$span(info, style = "color:black;"), class = "bubble"),
                             fluidRow(
                               div(style = "margin: 20px;",
                                   # column(5,
@@ -584,11 +589,13 @@ server <- function(input, output, session) {
                           question <- quesEst$question[x]
                           options <- quesEst$list[x]
                           id <- quesEst$number[x]
+                          info <- quesEst$info[x]
                           just <- answers$main |> 
                             filter(idQuestion == quesEst$idQuestion[x]) |> 
                             pull(justification)
                           tagList(
-                            h4(glue("EST {id}: {question}")),
+                            h4(glue("EST {id}: {question}"),
+                               tags$span(info, style = "color:black;"), class = "bubble"),
                             fluidRow(
                               div(style = "margin: 20px;",
                                   # column(5,
@@ -619,12 +626,14 @@ server <- function(input, output, session) {
                           question <- quesImp$question[x]
                           options <- quesImp$list[x]
                           id <- quesImp$number[x]
+                          info <- quesImp$info[x]
                           just <- answers$main |> 
                             filter(idQuestion == quesImp$idQuestion[x]) |> 
                             pull(justification)
                           type <- quesImp$type[x]
                           tagList(
-                            h4(glue("IMP {id}: {question}")),
+                            h4(glue("IMP {id}: {question}"), 
+                               tags$span(info, style = "color:black;"), class = "bubble"),
                             fluidRow(
                               div(style = "margin: 20px;",
                                   # column(5,
@@ -656,12 +665,14 @@ server <- function(input, output, session) {
                           question <- quesMan$question[x]
                           options <- quesMan$list[x]
                           id <- quesMan$number[x]
+                          info <- quesMan$info[x]
                           just <- answers$main |> 
                             filter(idQuestion == quesMan$idQuestion[x]) |> 
                             pull(justification)
                           sub <- quesMan$subgroup[x]
                           tagList(
-                            h4(glue("MAN {id}: {question}")),
+                            h4(glue("MAN {id}: {question}"), 
+                               tags$span(info, style = "color:black;"), class = "bubble"),
                             fluidRow(
                               div(style = "margin: 20px;",
                                   # column(5,
@@ -761,14 +772,14 @@ server <- function(input, output, session) {
   
   ### Control all inputs dynamically ----
   observe({
-    req(questions$main)
-    # req(assessments$entry)
+    # req(questions$main)
+    req(assessments$selected)
     answ_ent <- extract_answers(questions$main, groupTag = "ENT", input)
     answ_est <- extract_answers(questions$main, groupTag = "EST", input)
     answ_imp <- extract_answers(questions$main, groupTag = "IMP", input)
     answ_man <- extract_answers(questions$main, groupTag = "MAN", input)
     answ_all <- c(answ_ent, answ_est, answ_imp, answ_man)
-# print(answ_all)    
+
     frominput$main <- get_inputs_as_df(answ_all, input) #, points$main
     
     if (!is.null(assessments$entry)) {
@@ -786,8 +797,14 @@ server <- function(input, output, session) {
     } else {
       frominput$entry <- NULL
     }
-# print(frominput$entry)
+    # save$status <- "Pending"
+
   })
+  
+  # observeEvent(frominput$entry, {
+  #   print("triggered")
+  #   save$status <- "Pending"
+  # })
   
   # for (group in c("ENT1", "EST1", "EST2", "IMP1", "IMP2", "MAN1")) {
   #   local({
@@ -801,36 +818,15 @@ server <- function(input, output, session) {
   lapply(c("ENT1", "EST1", "EST2", "EST3", "EST4", "IMP1", "IMP3", 
            "MAN1", "MAN2", "MAN3", "MAN4", "MAN5"), function(tag){
     output[[paste0(tag, "_warning")]] <- renderUI({
+      req(frominput$main)
       render_severity_warning(tag, frominput$main)
     })
   })
   
   lapply(c("IMP2.1", "IMP2.2", "IMP2.3", "IMP4.1", "IMP4.2", "IMP4.3"), function(tag){
     output[[paste0(tag, "_warning")]] <- renderUI({
+      req(frominput$main)
       render_severity_boolean_warning(tag, frominput$main)
-    })
-  })
-  
-  #### Error message for entry pathways questions ----
-  # this is hardcoded for now
-  lapply(c(1:8), function(p){
-    output[[paste0("ENT2A_", p, "_warning")]] <- renderUI({
-      render_severity_warning("ENT2A", frominput$entry |> filter(path == p))
-    })
-  })
-  lapply(c(1:8), function(p){
-    output[[paste0("ENT2B_", p, "_warning")]] <- renderUI({
-      render_severity_warning("ENT2B", frominput$entry |> filter(path == p))
-    })
-  })
-  lapply(c(1:8), function(p){
-    output[[paste0("ENT3_", p, "_warning")]] <- renderUI({
-      render_severity_warning("ENT3", frominput$entry |> filter(path == p))
-    })
-  })
-  lapply(c(1:8), function(p){
-    output[[paste0("ENT4_", p, "_warning")]] <- renderUI({
-      render_severity_warning("ENT4", frominput$entry |> filter(path == p))
     })
   })
   
@@ -845,7 +841,8 @@ server <- function(input, output, session) {
                  filter(idPathway == x) |>
                  pull(name),
                 div(style = "margin: 20px;",
-                   h4(glue("ENT 2A: {questions$entry$question[1]}")),
+                   h4(glue("ENT 2A: {questions$entry$question[1]}"), 
+                      tags$span(questions$entry$info[1], style = "color:black;"), class = "bubble"),
                    render_quest_tab("ENT", paste0(questions$entry$number[1],"_", 
                                                   rep(x, length(questions$entry$number[1]))),
                                     questions$entry$question[1], 
@@ -863,7 +860,8 @@ server <- function(input, output, session) {
                                  resize = "vertical"),
                    # ),
                    hr(style = "border-color: gray;"),
-                   h4(glue("ENT 2B: {questions$entry$question[2]}")),
+                   h4(glue("ENT 2B: {questions$entry$question[2]}"), 
+                      tags$span(questions$entry$info[1], style = "color:black;"), class = "bubble"),
                     render_quest_tab("ENT", paste0(questions$entry$number[2],"_", 
                                                    rep(x, length(questions$entry$number[2]))),
                                      questions$entry$question[2], 
@@ -880,7 +878,8 @@ server <- function(input, output, session) {
                                   height = '150px',
                                   resize = "vertical"),
                    tags$hr(style = "border-color: gray;"),
-                   h4(glue("ENT 3: {questions$entry$question[3]}")),
+                   h4(glue("ENT 3: {questions$entry$question[3]}"), 
+                      tags$span(questions$entry$info[1], style = "color:black;"), class = "bubble"),
                     render_quest_tab("ENT", paste0(questions$entry$number[3],"_", 
                                                    rep(x, length(questions$entry$number[3]))),
                                      questions$entry$question[3],
@@ -897,7 +896,8 @@ server <- function(input, output, session) {
                                   height = '150px',
                                   resize = "vertical"),
                    tags$hr(style = "border-color: gray;"),
-                   h4(glue("ENT 4: {questions$entry$question[4]}")),
+                   h4(glue("ENT 4: {questions$entry$question[4]}"), 
+                      tags$span(questions$entry$info[1], style = "color:black;"), class = "bubble"),
                     render_quest_tab("ENT", paste0(questions$entry$number[4],"_", 
                                                    rep(x, length(questions$entry$number[4]))),
                                      questions$entry$question[4], 
@@ -922,15 +922,67 @@ server <- function(input, output, session) {
     return(ui)
   })
   
-  ## Save Assessment ----
+  #### Error message for entry pathways questions ----
+  # this is hardcoded for now
+  lapply(c(1:8), function(p){
+    output[[paste0("ENT2A_", p, "_warning")]] <- renderUI({
+      req(frominput$entry)
+      render_severity_warning("ENT2A", frominput$entry |> filter(path == p))
+    })
+  })
+  lapply(c(1:8), function(p){
+    output[[paste0("ENT2B_", p, "_warning")]] <- renderUI({
+      req(frominput$entry)
+      render_severity_warning("ENT2B", frominput$entry |> filter(path == p))
+    })
+  })
+  lapply(c(1:8), function(p){
+    output[[paste0("ENT3_", p, "_warning")]] <- renderUI({
+      req(frominput$entry)
+      render_severity_warning("ENT3", frominput$entry |> filter(path == p))
+    })
+  })
+  lapply(c(1:8), function(p){
+    output[[paste0("ENT4_", p, "_warning")]] <- renderUI({
+      req(frominput$entry)
+      render_severity_warning("ENT4", frominput$entry |> filter(path == p))
+    })
+  })
+  
+# Save Assessment ----
+  # # Autosave every 30 seconds
+  # auto_timer <- reactiveTimer(30000, session)
+  # observe({
+  #   auto_timer()
+  #   # req(assessments$selected)
+  #   # req(frominput$§main)
+  #   
+  #   if (isolate(save$status) != "Saved ✔️") {
+  #     # save$status <- "Autosaving..."
+  #     click("save")
+  #   } #else {
+  #   #   save$status <- "Up to date ✅"
+  #   # }
+  # })
+  # 
+  # # Display save status
+  # output$save_status <- renderText({
+  #   save$status
+  # })
+  
   # Mark as finished and valid
   observeEvent(input$ass_finish, {
+# print(answers$main)
+    req(answers$main)
     if (input$ass_finish == TRUE) {
       ## Check for the main questions
       answers_df <- answers$main |> 
         left_join(questions$main, by = "idQuestion")
-      
+  
+#### TODO not really checking if all questions are complete ----
+# print(answers_df)      
       is_complete_main <- check_minmax_completeness(answers_df) 
+# print(is_complete_main)
 
       if (!is_complete_main) {
         shinyalert(
@@ -944,17 +996,21 @@ server <- function(input, output, session) {
       
       ## Check for the entry pathways questions
       if (length(assessments$entry) > 0) {
-        answers_df <- answers$entry |> 
-          left_join(questions$entry, by = "idPathQuestion")
-        is_complete_entry <- check_minmax_completeness(answers_df, all = TRUE) 
-        
-        if (!is_complete_entry) {
-          shinyalert(
-            title = "Incomplete Pathway Assessment",
-            text = "Please answer all pathway assessment questions before saving.",
-            type = "warning"
-          )
-          return()
+        for (p in 1:length(assessments$entry)){
+          answers_df <- answers$entry |> 
+            filter(idPathway == names(assessments$entry)[p]) |> 
+            left_join(questions$entry, by = "idPathQuestion")
+          is_complete_entry <- check_minmax_completeness(answers_df, all = TRUE) 
+# print(is_complete_entry)          
+          if (!is_complete_entry) {
+            shinyalert(
+              title = "Incomplete Pathway Assessment",
+              text = "Please answer all pathway assessment questions before saving.",
+              type = "warning"
+            )
+            return()
+          }
+          
         }
         
       } 
@@ -964,11 +1020,15 @@ server <- function(input, output, session) {
                 params = list(1, 
                               format(now("CET"), "%Y-%m-%d %H:%M:%S"), 
                               assessments$selected$idAssessment))
+      
+      # save$status <- "Pending"
+      
     } else {
       updateCheckboxInput(session, "ass_valid", value = FALSE)
       dbExecute(con(), "UPDATE assessments SET finished = ?, valid = ? WHERE idAssessment = ?",
                 params = list(0, 0,
                               assessments$selected$idAssessment))
+      # save$status <- "Pending"
     }
     assessments$data <- dbReadTable(con(), "assessments")
     assessments$selected <- assessments$data[input$assessments_rows_selected, ]
@@ -1000,11 +1060,21 @@ server <- function(input, output, session) {
         mutate(label = paste(scientificName, eppoCode, 
                              paste(firstName, lastName), startDate, 
                              sep = "_"))
+      
+      # save$status <- "Pending"
     }
   })
   
   # Save Assessment
   observeEvent(input$save, {
+    req(assessments$selected)
+    req(assessments$threats)
+    # req(frominput$main)
+    # req(answers$main)
+    # req(answers$entry)
+    # req(input$ass_pot_entry_path_text)
+    
+    # save$status <- "Saving..."
     
     # Save assessment general info
     dbExecute(con(), "UPDATE assessments SET endDate = ?, 
@@ -1223,6 +1293,17 @@ server <- function(input, output, session) {
                                               FROM pathwayAnswers AS pa 
                                               LEFT JOIN entryPathways AS ep ON pa.idEntryPathway = ep.idEntryPathway
                                               WHERE pa.idEntryPathway IN ({paste(selected_entries$idEntryPathway, collapse = ', ')})"))
+    
+    save$status <- "Saved ✔️"
+    save$timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+    
+    shinyalert(
+      title = "Success",
+      text = "Assessment saved successfully.",
+      type = "success",
+      timer = 1000,
+    )
+    
   })
   
   # Simulations ----
@@ -1277,11 +1358,11 @@ server <- function(input, output, session) {
   })
   
   observeEvent(input$def_sim, {
-    updateNumericInput(session, "n_sim", value = 5000)
+    updateNumericInput(session, "n_sim", value = default_sim$n_sim)
     # updateNumericInput(session, "seed_sim", value = 12345)
-    updateNumericInput(session, "lambda_sim", value = 1)
-    updateNumericInput(session, "w1_sim", value = 0.5)
-    updateNumericInput(session, "w2_sim", value = 0.5)
+    updateNumericInput(session, "lambda_sim", value = default_sim$lambda)
+    updateNumericInput(session, "w1_sim", value = default_sim$w1)
+    updateNumericInput(session, "w2_sim", value = default_sim$w2)
   })
   
   observeEvent(input$new_sim, {
@@ -1322,7 +1403,20 @@ server <- function(input, output, session) {
           likely_points = sum(as.numeric(likely_points), na.rm = TRUE),
           max_points = sum(as.numeric(max_points), na.rm = TRUE),
           .groups = "drop"
-        )
+        ) |> 
+        as.data.frame()
+      
+      #Check if IMP4 is present
+      if (!"IMP2" %in% answers_df$question) {
+        # Create a row with 0 values for IMP4
+        answers_df <- rbind(answers_df, 
+                            c("IMP2",0,0,0))
+      }
+      if (!"IMP4" %in% answers_df$question) {
+        # Create a row with 0 values for IMP4
+        answers_df <- rbind(answers_df, 
+                            c("IMP4",0,0,0))
+      }
       
   # answers_df_exp <<- answers_df
   
@@ -1344,7 +1438,7 @@ server <- function(input, output, session) {
       
       # Run simulation function
       simulations$results <- simulation(answers_df, answers_entry_df, 
-                                        iterations = input$n_sim, lambda = input$sim_lambda, 
+                                        iterations = input$n_sim, lambda = input$lambda_sim, 
                                         w1 = input$w1_sim , w2 = input$w2_sim)
       
       simulations$summary <- simulations$results |>
@@ -1380,10 +1474,10 @@ server <- function(input, output, session) {
   
   output$sim_results <- renderDT({
     req(simulations$summary)
-    
     datatable(simulations$summary |> 
                 mutate(variable = c("Entry A*", "Entry B**", "Establishment", 
-                                    "Invasion A*", "Invasion B**", "Impact", 
+                                    "Invasion A*", "Invasion B**", "Impact",
+                                    "Overall Risk A*", "Overall Risk B**",
                                     "Preventavility", "Controlability", "Manageability")),
               rownames = FALSE,
               colnames = c("Variable", "Min", "5th Percentile", "25th Percentile", 
@@ -1397,6 +1491,7 @@ server <- function(input, output, session) {
   ## Save Simulation ----
   observeEvent(input$save_sim, {
     req(simulations$results)
+    save$status <- "Saving"    
     
     res <- dbExecute(conn = con(),
                      "INSERT INTO simulations(idAssessment, iterations, lambda, weight1, weight2, date)
@@ -1432,6 +1527,9 @@ server <- function(input, output, session) {
 
     
     simulations$data <- dbReadTable(con(), "simulations")
+    
+    save$status <- "Saved ✔️"
+    save$timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
     
     shinyalert(
       title = "Success",

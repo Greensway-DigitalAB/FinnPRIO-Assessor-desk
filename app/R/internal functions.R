@@ -140,13 +140,15 @@ render_quest_tab <- function(tag, qid, question,
 }
 
 render_severity_warning <- function(groupTag, answers) {
-  severity_map <- c(a = 1, b = 2, c = 3, d = 4, e = 5, f = 6, g = 7, h = 8, i = 9)
+  severity_map <- c(a = 1, b = 2, c = 3, d = 4, e = 5, f = 6, g = 7, h = 8, i = 9,
+                    j = 10, k = 11, l = 12, m = 13, n = 14, o = 15, p = 16, q = 17)
   focal_ans <- answers |> 
     filter(question == groupTag) |> 
     select(minimum, likely, maximum) |> 
     unlist()
 # print(focal_ans)
   renderUI({
+    req(focal_ans)
     # Ensure names are "min", "likely", "max"
     sev_values <- severity_map[focal_ans]
     names(sev_values) <- c("minimum", "likely", "maximum")
@@ -485,9 +487,9 @@ check_minmax_completeness <- function(df, all = FALSE) {
   } else {
     minmax_rows <- df
   }
-  
   # Check for missing values in min, likely, or max
   incomplete <- minmax_rows[is.na(minmax_rows$min) | is.na(minmax_rows$likely) | is.na(minmax_rows$max), ]
+# print(incomplete)  
   
   # Return result
   if (nrow(incomplete) == 0) {
@@ -495,7 +497,7 @@ check_minmax_completeness <- function(df, all = FALSE) {
     return(TRUE)
   } else {
     # message("❌ Incomplete 'minmax' rows found:")
-    shinyalert("title" = "Incomplete 'minmax' rows found",
+    shinyalert("title" = "Incomplete assessment rows found",
                "text" = paste("Please complete the following questions:", 
                               paste(incomplete$question, collapse = ", ")),
                type = "error")
@@ -505,217 +507,3 @@ check_minmax_completeness <- function(df, all = FALSE) {
 }
 
 
-rpert_from_tag <- function(answers, tag, iterations = 5000, lambda = 1) {
-  points <- answers[answers$question == tag, c("min_points", "likely_points", "max_points")] |> 
-    as.numeric()
-  res <- rpert(iterations, points[1], points[2], points[3], lambda)
-  return(res)
-}
-
-generate_inclusion_exclusion_score <- function(score_matrix) {
-  n <- ncol(score_matrix)
-  iterations <- nrow(score_matrix)
-  result <- numeric(iterations)
-  
-  for (k in 1:n) {
-    combos <- combn(n, k, simplify = FALSE)
-    for (combo in combos) {
-      sign <- ifelse(k %% 2 == 1, 1, -1)
-      term <- apply(score_matrix[, combo, drop = FALSE], 1, prod)
-      result <- result + sign * term
-    }
-  }
-  
-  return(result)
-}
-
-
-simulation <- function(answers, answers_entry, 
-                       iterations = 5000, lambda = 1, 
-                       w1 = 0.5, w2 = 0.5){
-  
-  pathways <- unique(answers_entry$idpathway)
-  scores <- array(0, dim = c(iterations, length(pathways), 2, 3)) #A, B
-  rownames(scores) <- paste0("sim", 1:iterations)
-  colnames(scores) <- paste0("path",pathways)
-  dimnames(scores)[[3]] <- c("A", "B")
-  dimnames(scores)[[4]] <- c("1", "2", "3")
-  
-  scorePathway <- array(0, dim = c(iterations, length(pathways), 2)) #A, B
-  rownames(scorePathway) <- paste0("sim", 1:iterations)
-  colnames(scorePathway) <- paste0("path",pathways)
-  dimnames(scorePathway)[[3]] <- c("A", "B")
-
-  
-  ENT1 <- rpert_from_tag(answers, tag = "ENT1")
-  
-  for (p in pathways){
-    ENT2A <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT2A")
-    ENT2B <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT2B")
-    ENT3 <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT3")
-    ENT4 <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT4")
-  
-    ENT3A <- ENT3
-    
-    ## OBS equal is not consider 
-    ENT3A <- case_when(
-      ENT2A > 2.5 & ENT3 > 0.5 ~ 3,
-      ENT2A < 2.5 & ENT2A > 1.5 & ENT3 > 1.5 ~ 3,
-      ENT2A < 0.25 ~ 0,
-      TRUE ~ ENT3A  # keep original value if no condition is met
-    )
-    
-    scores[, paste0("path",p), "A", 1] <- ((ENT1 * ENT2A * ENT4) / 27)
-    scores[, paste0("path",p), "A", 2] <- ((ENT2A * ENT4) / 9)
-    scores[, paste0("path",p), "A", 3] <- ((ENT1 * ENT2A * ENT3A * ENT4) / 81)
-  
-    ## OBS equal is not consider 
-    scorePathway[,paste0("path",p), "A"] <- case_when(
-      p < 2 ~ scores[, paste0("path",p), "A", 2], #((ENT2A*ENT4)/9)
-      p < 4 ~ scores[, paste0("path",p), "A", 1], #((ENT1*ENT2A*ENT4)/27)
-      # p > 4 ~ scores[, paste0("path",p), "A", 3], #((ENT1*ENT2A*ENT3A*ENT4)/81)
-      .default = scores[, paste0("path",p), "A", 3] #((ENT1*ENT2A*ENT3A*ENT4)/81) # Default case
-    )
-    
-    ENT3B <- ENT3
-    ENT3B <- case_when(
-      ENT2B > 2.5 & ENT3 > 0.5 ~ 3,
-      ENT2B < 2.5 & ENT2B > 1.5 & ENT3 > 1.5 ~ 3,
-      ENT2B < 0.25 ~ 0,
-      TRUE ~ ENT3B  # keep original value if no condition is met
-    )
-    
-    scores[, paste0("path",p), "B", 1] <- ((ENT1 * ENT2A * ENT4) / 27)
-    scores[, paste0("path",p), "B", 2] <- ((ENT2B * ENT4) / 9)
-    scores[, paste0("path",p), "B", 3] <- ((ENT1 * ENT2B * ENT3B * ENT4) / 81)
-    
-    ## OBS equal is not consider 
-    scorePathway[,paste0("path",p), "B"] <- case_when(
-      p < 2 ~ scores[, paste0("path",p), "B", 2], #((ENT2A*ENT4)/9)
-      p < 4 ~ scores[, paste0("path",p), "B", 1], #((ENT1*ENT2A*ENT4)/27)
-      # p > 4 ~ scores[, paste0("path",p), "B", 3], #((ENT1*ENT2A*ENT3A*ENT4)/81)
-      .default = scores[, paste0("path",p), "B", 3] #((ENT1*ENT2A*ENT3A*ENT4)/81) # Default case
-    )
-    
-  } # end for pathways
-  
-  ENTRYA <- generate_inclusion_exclusion_score(scorePathway[,,"A"])
-  # ENTRYA <- scorePathway[,1,"A"]+scorePathway[,2,"A"] - scorePathway[,1,"A"]*scorePathway[,2,"A"]
-  ENTRYB <- generate_inclusion_exclusion_score(scorePathway[,,"B"])
-  # ENTRYB<-ScorePathway1B+ScorePathway2B+ScorePathway3B+ScorePathway4B+ScorePathway5B-ScorePathway1B*ScorePathway2B-ScorePathway1B*ScorePathway3B-ScorePathway1B*ScorePathway4B-ScorePathway1B*ScorePathway5B-ScorePathway2B*ScorePathway3B-ScorePathway2B*ScorePathway4B-ScorePathway2B*ScorePathway5B-ScorePathway3B*ScorePathway4B-ScorePathway3B*ScorePathway5B-ScorePathway4B*ScorePathway5B+ScorePathway1B*ScorePathway2B*ScorePathway3B+ScorePathway1B*ScorePathway2B*ScorePathway4B+ScorePathway1B*ScorePathway2B*ScorePathway5B+ScorePathway1B*ScorePathway3B*ScorePathway4B+ScorePathway1B*ScorePathway3B*ScorePathway5B+ScorePathway1B*ScorePathway4B*ScorePathway5B+ScorePathway2B*ScorePathway3B*ScorePathway4B+ScorePathway2B*ScorePathway3B*ScorePathway5B+ScorePathway2B*ScorePathway4B*ScorePathway5B+ScorePathway3B*ScorePathway4B*ScorePathway5B-ScorePathway1B*ScorePathway2B*ScorePathway3B*ScorePathway4B-ScorePathway1B*ScorePathway2B*ScorePathway3B*ScorePathway5B-ScorePathway1B*ScorePathway2B*ScorePathway4B*ScorePathway5B-ScorePathway1B*ScorePathway3B*ScorePathway4B*ScorePathway5B-ScorePathway2B*ScorePathway3B*ScorePathway4B*ScorePathway5B+ScorePathway1B*ScorePathway2B*ScorePathway3B*ScorePathway4B*ScorePathway5B
-  
-  EST1 <- rpert_from_tag(answers, tag = "EST1")
-  EST2 <- rpert_from_tag(answers, tag = "EST2")
-  EST3 <- rpert_from_tag(answers, tag = "EST3")
-  EST4 <- rpert_from_tag(answers, tag = "EST4")
-  
-  
-  SPR1 <- case_when(
-    EST3 > 2.5 & EST2 > 3.5 ~ 6,
-    EST3 > 2.5 & EST2 > 2.5 & EST2 < 3.5 ~ 7,
-    EST3 > 2.5 & EST2 > 1.5 & EST2 < 2.5 ~ 8,
-    EST3 > 2.5 & EST2 > 0.5 & EST2 < 1.5 ~ 9,
-    
-    EST3 < 2.5 & EST3 > 1.5 & EST2 > 3.5 ~ 4,
-    EST3 < 2.5 & EST3 > 1.5 & EST2 > 2.5 & EST2 < 3.5 ~ 5,
-    EST3 < 2.5 & EST3 > 1.5 & EST2 > 1.5 & EST2 < 2.5 ~ 6,
-    EST3 < 2.5 & EST3 > 1.5 & EST2 > 0.5 & EST2 < 1.5 ~ 7,
-    
-    EST3 < 1.5 & EST3 > 0.5 & EST2 > 3.5 ~ 2,
-    EST3 < 1.5 & EST3 > 0.5 & EST2 > 2.5 & EST2 < 3.5 ~ 3,
-    EST3 < 1.5 & EST3 > 0.5 & EST2 > 1.5 & EST2 < 2.5 ~ 4,
-    EST3 < 1.5 & EST3 > 0.5 & EST2 > 0.5 & EST2 < 1.5 ~ 5,
-    
-    EST3 < 0.5 & EST2 > 2.5 ~ 1,
-    EST3 < 0.5 & EST2 > 1.5 & EST2 < 2.5 ~ 2,
-    EST3 < 0.5 & EST2 > 0.5 & EST2 < 1.5 ~ 3,
-    
-    EST2 < 0.5 ~ 0,
-    
-    TRUE ~ NA_real_  # default case if none match
-  )
-  
-  ESTABLISHMENT <- case_when(
-    EST1 < 0.75 ~ 0,
-    EST2 < 0.5 ~ 0,
-    TRUE ~ (EST1 + SPR1 + EST4) / 21
-  )
-  
-  INVASIONA <- ENTRYA * ESTABLISHMENT
-  INVASIONB <- ENTRYB * ESTABLISHMENT
-  
-  IMP1 <- rpert_from_tag(answers, tag = "IMP1")
-  IMP2 <- rpert_from_tag(answers, tag = "IMP2")
-  IMP3 <- rpert_from_tag(answers, tag = "IMP3")
-  IMP4 <- rpert_from_tag(answers, tag = "IMP4")
-  
-  IMPACT <- ((w1 * (IMP1 + IMP2)) + 
-              (w2 * (IMP3 + IMP4))) / 9
-  
-  MAN1 <- rpert_from_tag(answers, tag = "MAN1")
-  MAN2 <- rpert_from_tag(answers, tag = "MAN2")
-  MAN3 <- rpert_from_tag(answers, tag = "MAN3")
-  MAN4 <- rpert_from_tag(answers, tag = "MAN4")
-  MAN5 <- rpert_from_tag(answers, tag = "MAN5")
-  
-  PREVENTABILITY <- pmax(MAN1, MAN2, MAN3)
-  CONTROLLABILITY <- pmax(MAN4, MAN5)
-  MANAGEABILITY <- pmin(PREVENTABILITY, CONTROLLABILITY)
-  
-  SCORE <- cbind(ENTRYA, ENTRYB, ESTABLISHMENT, INVASIONA, INVASIONB, IMPACT, 
-                 PREVENTABILITY, CONTROLLABILITY, MANAGEABILITY)
-  return(SCORE)
-}
-
-
-
-#   
-#   
-#   ### Points for pathways
-#    
-# df_points <- df |> 
-#   left_join(points_path, by = c("Question", "Option"))
-
-# Step 1: Filter ENT3
-# ent2A <- df_points |> filter(Question == "ENT2A")
-# ent2B <- df_points |> filter(Question == "ENT2B")
-# ent3 <- df_points |> filter(Question == "ENT3")
-# 
-# # Step 2: Merge ENT2 and ENT3 by Answer type
-# ent2a_3 <- bind_rows(ent2A, ent3) |> 
-#   group_by(Answer, Path) |> 
-#   reframe(
-#     ent2a_options = Option[Question == "ENT2A"],
-#     ent3_options = Option[Question == "ENT3"]
-#   ) |> 
-#   mutate(
-#     Points = mapply(get_table2_points, ent2a_options, ent3_options, 
-#                     MoreArgs = list(table2 = table2_lexp)),
-#     Question = "ENT3A"
-#   ) |> 
-#   select(Path, Question, Answer, Points)
-# 
-# ent2b_3 <- bind_rows(ent2B, ent3) |> 
-#   group_by(Answer, Path) |> 
-#   summarise(
-#     ent2b_options = Option[Question == "ENT2B"],
-#     ent3_options = Option[Question == "ENT3"],
-#     .groups = "drop"
-#   ) |> 
-#   mutate(
-#     Points = mapply(get_table2_points, ent2b_options, ent3_options, MoreArgs = list(table2 = table2_lexp)),
-#     Question = "ENT3B"
-#   ) |> 
-#   select(Path, Question, Answer, Points)
-# 
-# 
-# # Step 3: Filter out ENT3 from original data
-# df_clean <- df_points  |> 
-#   filter(!Question %in% c("ENT3"))  |> 
-#   select(Path, Question, Answer, Points) |> 
-#   mutate(Points = as.numeric(Points))
-# 
-# # Step 4: Combine and pivot
-# final <- bind_rows(df_clean, ent2a_3, ent2b_3)  |> 
-#   pivot_wider(names_from = Answer, values_from = Points) |> 
-#   as.data.frame()

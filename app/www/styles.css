@@ -1,0 +1,47 @@
+p.bubble {
+    border-bottom: 0px dotted;
+}
+p.bubble:hover {
+    cursor: help;
+    position: relative
+}
+p.bubble span {
+    display: none
+}
+p.bubble:hover span {
+    border: #c0c0c0 0px dotted;
+    padding: 5px 5px 5px 5px;
+    display: inline-block;
+    z-index: 100;
+    background: #FFFAEB;
+    left: 0;
+    margin: 10px;
+    width: auto;
+	  min-width: 150px;
+    position: absolute;
+    top: 10px;
+}
+
+h4.bubble {
+    border-bottom: 0px dotted;
+}
+h4.bubble:hover {
+    cursor: help;
+    position: relative
+}
+h4.bubble span {
+    display: none
+}
+h4.bubble:hover span {
+    border: #c0c0c0 0px dotted;
+    padding: 5px 5px 5px 5px;
+    display: inline-block;
+    z-index: 100;
+    background: #FFFAEB;
+    left: 0;
+    margin: 10px;
+    width: auto;
+	  min-width: 150px;
+    position: absolute;
+    top: 10px;
+}
