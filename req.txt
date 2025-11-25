@@ -2,6 +2,7 @@ shiny
 shinyjs
 shinyFiles
 shinyalert
+shinythemes
 shinyWidgets
 DT
 DBI
@@ -10,3 +11,5 @@ tidyverse
 glue
 jsonlite
 mc2d
+officer
+flextable

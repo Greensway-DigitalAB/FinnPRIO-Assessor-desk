@@ -10,7 +10,7 @@ server <- function(input, output, session) {
   taxa <- reactiveValues(data = NULL)
   quaran <- reactiveValues(data = NULL)
   pathways <- reactiveValues(data = NULL)
-  assessments <- reactiveValues(data = NULL, questionarie = NULL, 
+  assessments <- reactiveValues(data = NULL, #questionarie = NULL, 
                                 selected = NULL, entry = NULL,
                                 selected_pathways = NULL,
                                 threats = NULL)
@@ -76,7 +76,7 @@ server <- function(input, output, session) {
     assessments$selected <- NULL
     assessments$entry <- NULL
     assessments$threats <- NULL
-    assessments$questionarie <- NULL
+    # assessments$questionarie <- NULL
     assessments$selected <- NULL
     answers$main <- NULL
     answers$entry <- NULL
@@ -99,7 +99,6 @@ server <- function(input, output, session) {
     
     file_path <- parseFilePaths(volumes, input$db_file)$datapath
   
-  # filepath<<-input$db_file
   # print(input$db_file$files$`0`[[3]])
     
     if (length(file_path) > 0 && file.exists(file_path)) {
@@ -230,6 +229,17 @@ server <- function(input, output, session) {
   proxyassessments <- dataTableProxy("assessments")
   
   
+  ## Export wide table ----
+  output$export_wide <- downloadHandler(
+    filename = function() { "wide_table.csv" },
+    content = function(file) {
+      ## This function returns only ONE assessment per species, and it is the valid or latest one
+      data <- export_wide_table(con(), only_one = !input$exp_all)
+      write.csv(data, file, row.names = FALSE, 
+                fileEncoding = "UTF-8")
+    }
+  )
+  
   ## when selecting assessment
   observeEvent(input$assessments_rows_selected, {
     if (is.null(input$assessments_rows_selected)) {
@@ -276,11 +286,18 @@ server <- function(input, output, session) {
   
   ## Assessments summary ----
   output$selectedAssName <- renderUI({
-    if (is.null(input$assessments_rows_selected)) {
-      tagList(icon("file", class = "fas"), "Selected Assessment")
+    # if (is.null(input$assessments_rows_selected)) {
+    #   tagList(icon("file", class = "fas"), "Selected Assessment")
+    # } else {
+    #   tagList(icon("file-lines", class = "fas"), assessments$selected$label)
+    # }
+    # res <- tagList(icon("file", class = "fas"), "Selected Assessment")
+    if (!is.null(input$assessments_rows_selected)) {
+      res <- tagList(icon("file-lines", class = "fas"), assessments$selected$label)
     } else {
-      tagList(icon("file-lines", class = "fas"), assessments$selected$label)
+      res <- tagList(icon("file", class = "fas"), "Selected Assessment")
     }
+    return(res)
   })
   
   output$assessment_summary <- renderUI({
@@ -300,9 +317,17 @@ server <- function(input, output, session) {
                         p("Questionary ver.", ass_info$version),
                         checkboxInput("ass_finish", label = "Is finished?", value = ass_info$finished),
                         checkboxInput("ass_valid", label = "Is valid?", value = ass_info$valid),
+                        downloadButton("download_report", "Download Assessment Report"),
                         uiOutput("species_summary")
                         ),
                  column(4,
+                        tags$div(class = "card", 
+                                 style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
+                                 h4(strong("Hosts"), style = "color:#7C6A56"),
+                                 textAreaInput("ass_hosts", label = "", 
+                                               value = ifelse(is.na(ass_info$hosts), "", ass_info$hosts),
+                                               width = "auto", height = "200px", resize = "vertical")
+                        ),
                         tags$div(class = "card", 
                                  style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
                                  uiOutput("threat_checkboxes")
@@ -326,6 +351,18 @@ server <- function(input, output, session) {
     )
     
   })
+  
+  ### Download a report ----
+  output$download_report <- downloadHandler(
+    filename = function() { paste0("assessment_report_", assessments$selected$label, ".docx") },
+    content = function(file) {
+      req(assessments$selected)
+      file_path <- report_assessment(con(), assessments$selected, questions$main, answers$main, 
+                                     assessments$entry, questions$entry, answers$entry, 
+                                     simulations$data)
+      file.copy(file_path, file)
+    }
+  )
   
   ### Pest summary ----
   # Once selected the species, show all you know about it
@@ -525,12 +562,12 @@ server <- function(input, output, session) {
     req(questions$main)
     req(answers$main)
     req(assessments$selected)
-  
+    
     quesEnt <- questions$main |> filter(group == "ENT") |> arrange(number)
     quesEst <- questions$main |> filter(group == "EST") |> arrange(number)
     quesImp <- questions$main |> filter(group == "IMP") |> arrange(number)
     quesMan <- questions$main |> filter(group == "MAN") |> arrange(number)
-
+    answers_logical <- answers_2_logical(answers$main, questions$main)
     tagList(
       tabsetPanel(
         tabPanel(id = "info", 
@@ -551,7 +588,9 @@ server <- function(input, output, session) {
                           # print(answers$main |> filter(idQuestion == quesEnt$idQuestion[x]))
                           tagList(
                             h4(glue("ENT {id}: {question}"), 
-                               tags$span(info, style = "color:black;"), class = "bubble"),
+                               tags$span(HTML(info), 
+                                         style = "color:black; font-size: 12px;"),
+                               class = "bubble"),
                             fluidRow(
                               div(style = "margin: 20px;",
                                   # column(5,
@@ -562,7 +601,7 @@ server <- function(input, output, session) {
                                   render_quest_tab("ENT", id, question,
                                                    fromJSON(options)$opt,
                                                    fromJSON(options)$text,
-                                                   answers_2_logical(answers$main, questions$main)),
+                                                   answers_logical),
                                   #        # ),
                                   # column(7,
                                   # uiOutput("ENT1_warning"),
@@ -595,14 +634,16 @@ server <- function(input, output, session) {
                             pull(justification)
                           tagList(
                             h4(glue("EST {id}: {question}"),
-                               tags$span(info, style = "color:black;"), class = "bubble"),
+                               tags$span(HTML(info), 
+                                         style = "color:black; font-size: 12px;"), 
+                               class = "bubble"),
                             fluidRow(
                               div(style = "margin: 20px;",
                                   # column(5,
                                   render_quest_tab("EST", id, question,
                                                    fromJSON(options)$opt,
                                                    fromJSON(options)$text,
-                                                   answers_2_logical(answers$main, questions$main)),
+                                                   answers_logical),
                                   # ),
                                   # column(7,
                                   br(),
@@ -633,14 +674,16 @@ server <- function(input, output, session) {
                           type <- quesImp$type[x]
                           tagList(
                             h4(glue("IMP {id}: {question}"), 
-                               tags$span(info, style = "color:black;"), class = "bubble"),
+                               tags$span(HTML(info), 
+                                         style = "color:black; font-size: 12px;"), 
+                               class = "bubble"),
                             fluidRow(
                               div(style = "margin: 20px;",
                                   # column(5,
                                   render_quest_tab("IMP", id, question,
                                                    fromJSON(options)$opt,
                                                    fromJSON(options)$text,
-                                                   answers_2_logical(answers$main, questions$main),
+                                                   answers_logical,
                                                    type),
                                   # ),
                                   # column(7,
@@ -672,14 +715,16 @@ server <- function(input, output, session) {
                           sub <- quesMan$subgroup[x]
                           tagList(
                             h4(glue("MAN {id}: {question}"), 
-                               tags$span(info, style = "color:black;"), class = "bubble"),
+                               tags$span(HTML(info), 
+                                         style = "color:black; font-size: 12px;"),
+                               class = "bubble"),
                             fluidRow(
                               div(style = "margin: 20px;",
                                   # column(5,
                                   render_quest_tab("MAN", id, question,
                                                    fromJSON(options)$opt,
                                                    fromJSON(options)$text,
-                                                   answers_2_logical(answers$main, questions$main)),
+                                                   answers_logical),
                                   #        ),
                                   # column(7,
                                   br(),
@@ -814,6 +859,7 @@ server <- function(input, output, session) {
   #     # output[[paste0(g, "_warning")]] <- render_severity_warning(g, answers)
   #   })
   # }
+  
   #### Error message for order of minimum likely maximum ----
   lapply(c("ENT1", "EST1", "EST2", "EST3", "EST4", "IMP1", "IMP3", 
            "MAN1", "MAN2", "MAN3", "MAN4", "MAN5"), function(tag){
@@ -842,7 +888,9 @@ server <- function(input, output, session) {
                  pull(name),
                 div(style = "margin: 20px;",
                    h4(glue("ENT 2A: {questions$entry$question[1]}"), 
-                      tags$span(questions$entry$info[1], style = "color:black;"), class = "bubble"),
+                      tags$span(HTML(questions$entry$info[1]), 
+                                style = "color:black; font-size: 12px;"), 
+                      class = "bubble"),
                    render_quest_tab("ENT", paste0(questions$entry$number[1],"_", 
                                                   rep(x, length(questions$entry$number[1]))),
                                     questions$entry$question[1], 
@@ -861,7 +909,9 @@ server <- function(input, output, session) {
                    # ),
                    hr(style = "border-color: gray;"),
                    h4(glue("ENT 2B: {questions$entry$question[2]}"), 
-                      tags$span(questions$entry$info[1], style = "color:black;"), class = "bubble"),
+                      tags$span(HTML(questions$entry$info[2]), 
+                                style = "color:black; font-size: 12px;"), 
+                      class = "bubble"),
                     render_quest_tab("ENT", paste0(questions$entry$number[2],"_", 
                                                    rep(x, length(questions$entry$number[2]))),
                                      questions$entry$question[2], 
@@ -879,7 +929,9 @@ server <- function(input, output, session) {
                                   resize = "vertical"),
                    tags$hr(style = "border-color: gray;"),
                    h4(glue("ENT 3: {questions$entry$question[3]}"), 
-                      tags$span(questions$entry$info[1], style = "color:black;"), class = "bubble"),
+                      tags$span(HTML(questions$entry$info[3]), 
+                                style = "color:black; font-size: 12px;"), 
+                      class = "bubble"),
                     render_quest_tab("ENT", paste0(questions$entry$number[3],"_", 
                                                    rep(x, length(questions$entry$number[3]))),
                                      questions$entry$question[3],
@@ -897,7 +949,9 @@ server <- function(input, output, session) {
                                   resize = "vertical"),
                    tags$hr(style = "border-color: gray;"),
                    h4(glue("ENT 4: {questions$entry$question[4]}"), 
-                      tags$span(questions$entry$info[1], style = "color:black;"), class = "bubble"),
+                      tags$span(HTML(questions$entry$info[4]),
+                                style = "color:black; font-size: 12px;"),
+                      class = "bubble"),
                     render_quest_tab("ENT", paste0(questions$entry$number[4],"_", 
                                                    rep(x, length(questions$entry$number[4]))),
                                      questions$entry$question[4], 
@@ -970,24 +1024,34 @@ server <- function(input, output, session) {
   #   save$status
   # })
   
-  # Mark as finished and valid
+  ## Mark as finished and valid ----
   observeEvent(input$ass_finish, {
-# print(answers$main)
     req(answers$main)
     if (input$ass_finish == TRUE) {
       ## Check for the main questions
       answers_df <- answers$main |> 
         left_join(questions$main, by = "idQuestion")
   
-#### TODO not really checking if all questions are complete ----
-# print(answers_df)      
+    ## check if all questions are complete
+      all_req_main <- all(questions$main |> 
+                            filter(type == "minmax") |> 
+                            pull(idQuestion) %in% answers_df$idQuestion)
+      if (!all_req_main) {
+        shinyalert(
+          title = "Incomplete Assessment",
+          text = "Please answer all assessment questions before saving.",
+          type = "warning"
+        )
+        updateCheckboxInput(session, "ass_finish", value = FALSE)
+        return()
+      } 
+
       is_complete_main <- check_minmax_completeness(answers_df) 
-# print(is_complete_main)
 
       if (!is_complete_main) {
         shinyalert(
           title = "Incomplete Assessment",
-          text = "Please answer all main assessment questions before saving.",
+          text = "Please answer all options in the assessment questions before saving.",
           type = "warning"
         )
         updateCheckboxInput(session, "ass_finish", value = FALSE)
@@ -1000,19 +1064,31 @@ server <- function(input, output, session) {
           answers_df <- answers$entry |> 
             filter(idPathway == names(assessments$entry)[p]) |> 
             left_join(questions$entry, by = "idPathQuestion")
+
+          all_req_entry <- all(questions$entry |> 
+                                 pull(idPathQuestion) %in% answers_df$idPathQuestion)
+
+          if (!all_req_entry) {
+            shinyalert(
+              title = "Incomplete Pathway Assessment",
+              text = "Please answer all questions for each pathway before saving.",
+              type = "warning"
+            )
+            updateCheckboxInput(session, "ass_finish", value = FALSE)
+            return()
+          }
+
           is_complete_entry <- check_minmax_completeness(answers_df, all = TRUE) 
-# print(is_complete_entry)          
           if (!is_complete_entry) {
             shinyalert(
               title = "Incomplete Pathway Assessment",
-              text = "Please answer all pathway assessment questions before saving.",
+              text = "Please answer all options on each pathway question before saving.",
               type = "warning"
             )
+            updateCheckboxInput(session, "ass_finish", value = FALSE)
             return()
           }
-          
         }
-        
       } 
       
       # If all checks pass
@@ -1030,6 +1106,8 @@ server <- function(input, output, session) {
                               assessments$selected$idAssessment))
       # save$status <- "Pending"
     }
+    
+    # reload the assessments data
     assessments$data <- dbReadTable(con(), "assessments")
     assessments$selected <- assessments$data[input$assessments_rows_selected, ]
     assessments$selected <- assessments$selected |> 
@@ -1038,19 +1116,41 @@ server <- function(input, output, session) {
       mutate(label = paste(scientificName, eppoCode, 
                            paste(firstName, lastName), startDate, 
                            sep = "_"))
-  })
+  }, ignoreInit = TRUE)
   
   observeEvent(input$ass_valid, {
+    req(answers$main)
     if (assessments$selected$finished) {
-### TODO is there another for the species also valid? ----
-      # shinyalert(
-      #   title = "Incomplete Pathway Assessment",
-      #   text = "Please answer all pathway assessment questions before saving.",
-      #   type = "warning"
-      # )
-      dbExecute(con(), "UPDATE assessments SET valid = ? WHERE idAssessment = ?",
-                params = list(as.integer(input$ass_valid),
-                              assessments$selected$idAssessment))
+      others <- assessments$data |> 
+        filter(idAssessment != assessments$selected$idAssessment,
+               idPest == assessments$selected$idPest,
+               valid == 1)
+# print(others)
+      if(nrow(others) > 0) {
+  ## is there another assessment for the species also valid?
+        shinyalert(
+          title = "There are other assessment marked as valid",
+          text = "For this species, there is another assessment marked as valid. \n Would you lke to make this the valid one?",
+          type = "info", 
+          showConfirmButton = TRUE, showCancelButton = TRUE,
+          confirmButtonText = "YES", cancelButtonText = "NO",  
+          timer = 0, animation = TRUE,
+          callbackR = function(value) { 
+            if (value) {
+              dbExecute(con(), "UPDATE assessments SET valid = ? WHERE idAssessment = ?",
+                        params = list(0, others$idAssessment))
+              
+              dbExecute(con(), "UPDATE assessments SET valid = ? WHERE idAssessment = ?",
+                        params = list(as.integer(input$ass_valid),
+                                      assessments$selected$idAssessment))
+            }})  # END if Value, callback, shinyAlert
+        
+        
+      } else {
+        dbExecute(con(), "UPDATE assessments SET valid = ? WHERE idAssessment = ?",
+                  params = list(as.integer(input$ass_valid),
+                                assessments$selected$idAssessment))
+      }
       
       assessments$data <- dbReadTable(con(), "assessments")
       assessments$selected <- assessments$data[input$assessments_rows_selected, ]
@@ -1062,11 +1162,19 @@ server <- function(input, output, session) {
                              sep = "_"))
       
       # save$status <- "Pending"
+    } else {
+      # shinyalert(
+      #   title = "The assessment is not finished",
+      #   text = "Please complete the questionaire and mark it as finished before selecting it as valid.",
+      #   type = "warning"
+      # )
+      updateCheckboxInput(session, "ass_valid", value = FALSE)
     }
-  })
+  }, ignoreInit = TRUE)
   
   # Save Assessment
   observeEvent(input$save, {
+    
     req(assessments$selected)
     req(assessments$threats)
     # req(frominput$main)
@@ -1078,11 +1186,13 @@ server <- function(input, output, session) {
     
     # Save assessment general info
     dbExecute(con(), "UPDATE assessments SET endDate = ?, 
+                                              hosts = ?,
                                               potentialEntryPathways = ?,
                                               reference = ?, 
                                               notes = ?
                       WHERE idAssessment = ?",
               params = list(format(now("CET"), "%Y-%m-%d %H:%M:%S"),
+                            input$ass_hosts,
                             input$ass_pot_entry_path_text,
                             input$ass_reftext,
                             input$ass_notes,
@@ -1129,12 +1239,6 @@ server <- function(input, output, session) {
     
 
     # Proceed with saving the ANSWERS IN assessment
-    # answ_ent <- extract_answers(questions$main, groupTag = "ENT", input)
-    # answ_est <- extract_answers(questions$main, groupTag = "EST", input)
-    # answ_imp <- extract_answers(questions$main, groupTag = "IMP", input)
-    # answ_man <- extract_answers(questions$main, groupTag = "MAN", input)
-    # answ_all <- c(answ_ent, answ_est, answ_imp, answ_man)
-    # resmain <- get_inputs_as_df(answ_all, input) #, points$main
     resmain <- frominput$main 
 
     if (nrow(resmain) == 0) {
@@ -1304,7 +1408,7 @@ server <- function(input, output, session) {
       timer = 1000,
     )
     
-  })
+  }, ignoreInit = TRUE)
   
   # Simulations ----
   output$simulations <- renderDT({
@@ -1501,7 +1605,8 @@ server <- function(input, output, session) {
                                    input$lambda_sim,
                                    input$w1_sim,
                                    input$w2_sim,
-                                   format(today("CET"), "%Y-%m-%d"))
+                                   format(now("CET"), "%Y-%m-%d %H:%M:%S")) 
+                                   # format(today("CET"), "%Y-%m-%d"))
                      )
     
     # Insert simulation results

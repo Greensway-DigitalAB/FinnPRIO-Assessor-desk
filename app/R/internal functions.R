@@ -426,7 +426,8 @@ answers_2_logical <- function(df, questions) {
       df$question_tag[i] <- question_tag
       
       row <- df[i, ]
-      options <- unique(c(row$min, row$likely, row$max))
+      options <- unique(c(row$min, row$likely, row$max)) |> 
+        na.omit()
       
       for (opt in options) {
         result <- rbind(result, data.frame(
@@ -507,3 +508,338 @@ check_minmax_completeness <- function(df, all = FALSE) {
 }
 
 
+export_wide_table <- function(connection, only_one = TRUE) {
+  
+  assessments <- dbGetQuery(connection, assessments_wide_sql)
+  if (only_one) {
+    assessments <- assessments |> 
+      group_by(scientificName) |>
+      arrange(desc(valid), desc(endDate)) |>   # valid first, then latest date
+      slice(1) |>                              # pick the top row per group
+      ungroup()
+  }
+  
+  # Make answers wide
+  answers <- dbGetQuery(connection, answers_sql) |> 
+    mutate(question_tag = paste0(group, number)) |> 
+    select(idAssessment, question_tag, min, likely, max, justification) |> 
+    pivot_wider(names_from = question_tag, 
+                values_from = c(min, likely, max, justification),
+                names_glue = "{question_tag}_{.value}")
+  
+  # Make answers_entry wide
+  answers_entry <- dbGetQuery(connection, answers_entry_sql) |> 
+    mutate(question_tag = paste0(group, number)) |> 
+    select(idAssessment, idEntryPathway, question_tag, min, likely, max, justification) |> 
+    pivot_wider(names_from = question_tag, 
+                values_from = c(min, likely, max, justification),
+                names_glue = "{question_tag}_{.value}")
+  answers_entry_uw <- answers_entry |> 
+    group_by(idAssessment) |>
+    mutate(PW_count = row_number()) |> 
+    filter(PW_count <= 5) |> 
+    # as.data.frame() |> 
+    select(-idEntryPathway) |> 
+    pivot_wider(names_from = PW_count,
+                values_from = starts_with("ENT"),
+                names_glue = "{.value}_PW{PW_count}")
+
+  # Make Simulations wide
+# simulationsExp <<- simulations
+  simulations <- dbGetQuery(connection, simulations_sql) |> 
+    select(-idSimulation) |> 
+    mutate(date = as.Date(date)) |>
+    pivot_wider(names_from = variable, 
+                values_from = c(min, q5, q25, median, mean, q75, q95, max),
+                names_glue = "SIM_{variable}_{.value}") |> 
+    rename("SIM_iterations" = iterations,
+           "SIM_lambda" = lambda,
+           "SIM_weight1" = weight1,
+           "SIM_weight2" = weight2,
+           "SIM_date" = date)
+
+  wide_data <- assessments |> 
+    left_join(answers, by = "idAssessment") |>
+    left_join(answers_entry_uw, by = "idAssessment") |>
+    left_join(simulations, by = "idAssessment")
+  
+  return(wide_data)
+}
+
+report_assessment <- function(connection, assessments_selected, questions_main, answers_main, 
+                              assessments_entry, questions_entry, answers_entry, simulations) {
+  
+  answers_logical <- answers_2_logical(answers_main, questions_main)
+  
+  quaran <- dbGetQuery(connection, glue("SELECT name FROM quarantineStatus
+                                     WHERE idQuarantineStatus = {as.integer(assessments_selected$idQuarantineStatus)}"))
+  taxa <- dbGetQuery(connection, glue("SELECT name FROM taxonomicGroups
+                                     WHERE idTaxa = {as.integer(assessments_selected$idTaxa)}"))
+
+  ids_ent <- as.integer(names(assessments_entry)) |> unique() |> na.omit()
+  entries <- dbGetQuery(connection, glue_sql("SELECT idPathway, name FROM pathways WHERE idPathway IN ({ids*})", 
+                                             ids = ids_ent, .con = connection))
+  
+  simulations <- simulations |> 
+    filter(idAssessment == assessments_selected$idAssessment)
+  
+  # Document parts
+
+  # Create Word document
+  doc <- read_docx(path = "www/template.docx")
+  doc <- doc |>
+    body_add_fpar(
+      fpar( "FinnPRIO assessment for ",
+            ftext(assessments_selected$scientificName, fp_text_lite(italic = TRUE))
+            ), style = "heading 1") |>
+    body_add_fpar(
+      fpar( ftext("Datum: ", fp_text_lite(bold = TRUE)),
+            ftext(assessments_selected$endDate)) ) |>
+    body_add_par("") |>
+    body_add_fpar(
+      fpar( ftext("Pest: ", fp_text_lite(bold = TRUE)),
+            ftext(assessments_selected$scientificName, fp_text_lite(italic = TRUE))) ) |>
+    body_add_fpar(
+      fpar( ftext("EPPO Code: ", fp_text_lite(bold = TRUE)),
+            assessments_selected$eppoCode) ) |>
+    body_add_fpar(
+      fpar( ftext("Common name: ", fp_text_lite(bold = TRUE)),
+            assessments_selected$vernacularName) ) |>
+    body_add_fpar(
+      fpar( ftext("Synonyms: ", fp_text_lite(bold = TRUE)),
+            assessments_selected$synonyms) ) |>
+    body_add_par("") |> 
+    body_add_fpar(
+      fpar( ftext("Name of Assessors: ", fp_text_lite(bold = TRUE)),
+            assessments_selected$fullName)
+    ) |>
+    body_add_par("") |>
+    body_add_fpar(
+      fpar( ftext("Taxonomic Group: ", fp_text_lite(bold = TRUE)),
+            taxa$name)
+    ) |>
+    body_add_par("") |>
+    body_add_fpar(
+      fpar( ftext("Quarantine status in the PRA area: ", fp_text_lite(bold = TRUE)),
+            quaran$name)
+    ) |>
+    body_add_par("") |>
+    body_add_fpar(
+      fpar( ftext("Host plants: ", fp_text_lite(bold = TRUE)),
+            assessments_selected$hosts)
+    ) |> 
+    body_add_par("") |>
+    body_add_fpar(
+      fpar( ftext("Threathened sectors: ", fp_text_lite(bold = TRUE)),
+            assessments_selected$hosts)
+    ) |>
+    body_add_par("") |>
+    body_add_fpar(
+      fpar( ftext("Entry pathways: ", fp_text_lite(bold = TRUE)),
+            paste0(entries$name, collapse = ", ") )
+    ) |>
+    body_add_fpar(
+      fpar( ftext(assessments_selected$potentialEntryPathways) )
+    ) |>
+    body_add_par("") |>
+    body_add_fpar(
+      fpar( ftext("Notes: ", fp_text_lite(bold = TRUE)),
+            assessments_selected$notes)
+    ) |>  
+    body_add_break() |> 
+    body_add_par("Assessments", style = "heading 2") |>
+    body_add_par("")
+    # body_add_fpar(intro_text) |> 
+  
+  ## entry
+  doc <- body_add_par(doc, "Entry", style = "heading 3")
+  doc <- add_answers_to_report(doc, "ENT", questions_main, answers_main, answers_logical)
+  ## entrypathways
+  for (path in ids_ent) {
+    name <- entries$name[entries$idPathway == as.integer(path)]
+    answers_path <- answers_entry |> filter(idPathway == as.integer(path))
+    answers_path_logical <- answers_path_2_logical(answers_path, questions_entry)
+    doc <- doc |> 
+      body_add_par(paste0("Entry Pathway: ", name), style = "heading 4")
+    doc <- add_answers_path_to_report(doc, "ENT", questions_entry, 
+                                      answers_path, answers_path_logical)
+  }
+  
+  ## establishment
+  doc <- doc |> 
+    body_add_break() |> 
+    body_add_par("Establishment and Spread", style = "heading 3")
+  doc <- add_answers_to_report(doc, "EST", questions_main, answers_main, answers_logical)
+
+  ## impact
+  doc <- doc |> 
+    body_add_break() |> 
+    body_add_par("Impact", style = "heading 3")
+  doc <- add_answers_to_report(doc, "IMP", questions_main, answers_main, answers_logical)
+  
+  ## Management
+  doc <- doc |> 
+    body_add_break() |> 
+    body_add_par("Management", style = "heading 3")
+  doc <- add_answers_to_report(doc, "MAN", questions_main, answers_main, answers_logical)
+  
+  # reference
+  doc <- doc |>
+    body_add_break() |> 
+    body_add_par("References", style = "heading 3") |>
+    body_add_par(assessments_selected$reference)
+  
+  # Save file
+  file_path <- tempfile(fileext = ".docx")
+  print(doc, target = file_path)
+  return(file_path)
+}
+
+add_answers_to_report <- function(doc, tag, questions_main, answers_main, answers_logical) {
+  quest <- questions_main |> 
+    filter(group == tag) |> 
+    arrange(number)
+  
+  for(x in 1:nrow(quest)) {
+
+    question <- quest$question[x]
+    options <- quest$list[x]
+    id <- quest$number[x]
+    q_tag <- paste0(tag, quest$number[x])
+    # info <- answers_logical$info[x]
+    just <- answers_main |> 
+      filter(idQuestion == quest$idQuestion[x]) |> 
+      pull(justification)
+    opt <- fromJSON(options)$opt
+    text <- fromJSON(options)$text
+    answers_quest <- answers_logical |> 
+      filter(question_tag == q_tag)
+    
+    missing_opts <- setdiff(opt, answers_quest$option)
+    
+    if(length(missing_opts) > 0) {
+      # Create rows for missing options
+      new_rows <- data.frame(
+        question_tag = q_tag,
+        option = missing_opts,
+        ques_tag_opt = paste0(q_tag, "_", missing_opts),
+        Minimum = FALSE,
+        Likely = FALSE,
+        Maximum = FALSE
+      )
+      answers_quest <- bind_rows(answers_quest, new_rows) |> 
+        arrange(option)
+    }
+    
+# print(answers_quest)
+    
+    if (quest$type[x] == "minmax") {
+      answers_quest <- answers_quest |> 
+        mutate(Option = paste0(opt,": ", text),
+               Minimum = ifelse(Minimum, "X", ""),
+               Likely = ifelse(Likely, "X", ""),
+               Maximum = ifelse(Maximum, "X", "")) |>
+        select(Option, Minimum, Likely, Maximum)  
+    } else {
+      answers_quest <- answers_quest |> 
+        mutate(Option = paste0(text),
+               Minimum = ifelse(!is.na(Minimum), 
+                                ifelse(Minimum, "YES", "NO"), 
+                                "NO"),
+               Likely = ifelse(!is.na(Likely), 
+                               ifelse(Likely, "YES", "NO"), 
+                               "NO"),
+               Maximum = ifelse(!is.na(Maximum), 
+                                ifelse(Maximum, "YES", "NO"), 
+                                "NO")) |>
+               # Minimum = ifelse(Minimum, "YES", "NO"),
+               # Likely = ifelse(Likely, "YES", "NO"),
+               # Maximum = ifelse(Maximum, "YES", "NO")) |>
+        select(Option, Minimum, Likely, Maximum)
+    }
+
+    doc <- doc |> 
+      # body_add_par(paste0("ENT", id, ": ", question), style = "heading 3") |> 
+      body_add_fpar(
+        fpar(
+          ftext(paste0(q_tag, ": "), prop = fp_text(bold = TRUE)),
+          ftext(question, prop = fp_text())
+        )) |> 
+      body_add_flextable(
+        flextable(answers_quest,
+                  cwidth = 1.5)
+      ) |>
+      # body_add_list(options, ordered = FALSE) |> 
+      body_add_par(paste0("Justification: ", just), style = "Normal")
+  } 
+  
+  # doc <- doc |> body_add_break()
+  
+  return(doc)
+}
+
+add_answers_path_to_report <- function(doc, tag, questions_entry, 
+                                       answers_entry, answers_logical) {
+# print(questions_entry)
+  quest <- questions_entry |> 
+    filter(group == tag) |> 
+    arrange(number)
+
+  id_path <- unique(answers_entry$idPathway)
+  
+  for(x in 1:nrow(quest)) {
+    question <- quest$question[x]
+    options <- quest$list[x]
+    id <- quest$number[x]
+    q_tag <- paste0(tag, id, "_", id_path)
+    just <- answers_entry |> 
+      filter(idPathQuestion  == quest$idPathQuestion[x]) |> 
+      pull(justification)
+    opt <- fromJSON(options)$opt
+    text <- fromJSON(options)$text
+    answers_quest <- answers_logical |> 
+      filter(question_tag == q_tag)
+    
+    missing_opts <- setdiff(opt, answers_quest$option)
+
+    if(length(missing_opts) > 0) {
+      # Create rows for missing options
+      new_rows <- data.frame(
+        question_tag = q_tag,
+        option = missing_opts,
+        ques_tag_opt = paste0(q_tag, "_", id_path, "_",  missing_opts),
+        Minimum = FALSE,
+        Likely = FALSE,
+        Maximum = FALSE
+      )
+      answers_quest <- bind_rows(answers_quest, new_rows) |> 
+        arrange(option)
+    }
+    
+    # print(answers_quest)
+    answers_quest <- answers_quest |> 
+      mutate(Option = paste0(opt,": ", text),
+             Minimum = ifelse(Minimum, "X", ""),
+             Likely = ifelse(Likely, "X", ""),
+             Maximum = ifelse(Maximum, "X", "")) |>
+      select(Option, Minimum, Likely, Maximum)  
+    
+    doc <- doc |> 
+      # body_add_par(paste0("ENT", id, ": ", question), style = "heading 3") |> 
+      body_add_fpar(
+        fpar(
+          ftext(paste0(tag, id, ": "), prop = fp_text(bold = TRUE)),
+          ftext(question, prop = fp_text())
+        )) |> 
+      body_add_flextable(
+        flextable(answers_quest,
+                  cwidth = 1.5)
+      ) |>
+      # body_add_list(options, ordered = FALSE) |> 
+      body_add_par(paste0("Justification: ", just), style = "Normal")
+  } 
+  
+  # doc <- doc |> body_add_break()
+  
+  return(doc)
+}

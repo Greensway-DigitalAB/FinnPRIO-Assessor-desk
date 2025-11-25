@@ -40,8 +40,7 @@ generate_inclusion_exclusion_score <- function(score_matrix) {
     }
   }
   
-print(result)  
-  
+# print(result)  
   
   return(result)
 }
@@ -71,8 +70,7 @@ simulation <- function(answers, answers_entry,
   rownames(scorePathway) <- paste0("sim", 1:iterations)
   colnames(scorePathway) <- paste0("path", pathways)
   dimnames(scorePathway)[[3]] <- c("A", "B")
-print(dim(scorePathway))
-  
+
   ENT1 <- rpert_from_tag(answers, tag = "ENT1")
   
   for (p in pathways){
@@ -124,7 +122,7 @@ print(dim(scorePathway))
     )
     
   } # end for pathways
-print(dim(scorePathway))
+# print(dim(scorePathway))
   
   ENTRYA <- generate_inclusion_exclusion_score(scorePathway[,,"A"])
   # ENTRYA <- scorePathway[,1,"A"]+scorePathway[,2,"A"] - scorePathway[,1,"A"]*scorePathway[,2,"A"]

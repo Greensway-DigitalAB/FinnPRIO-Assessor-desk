@@ -1,3 +1,0 @@
-tagList(
-  p("lorem ipsum")
-)

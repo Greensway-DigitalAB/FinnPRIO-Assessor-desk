@@ -9,6 +9,7 @@ p.bubble span {
     display: none
 }
 p.bubble:hover span {
+    font-size: 12px;
     border: #c0c0c0 0px dotted;
     padding: 5px 5px 5px 5px;
     display: inline-block;

@@ -22,7 +22,17 @@ navbarPage("FinnPRIO-Assessor",
                                          #                    inline = FALSE),
                                          # br(),
                                          h4(strong("Create New Assessment"), style = "color:#7C6A56"),
-                                         actionButton("new_ass", "Create Assessment")
+                                         actionButton("new_ass", "Create Assessment"),
+                                         br(),
+                                         br(),
+                                         h4(strong("Export All Assessments"), style = "color:#7C6A56"),
+                                         downloadButton("export_wide", "Export"),
+                                         checkboxInput("exp_all", 
+                                                       p("Export all assessments", 
+                                                          tags$span("Otherwise, only valid assessments are exported.",
+                                                                 style = "color:black; font-size: 12px;"),
+                                                       class = "bubble"),
+                                                       value = FALSE)
                                   )
                                       
                                 # sidebarLayout(
