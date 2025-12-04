@@ -1,7 +1,7 @@
 server <- function(input, output, session) {
   # Reactive values ####
   load <- reactiveValues(status = FALSE, timestamp = NULL)
-  save <- reactiveValues(status = "Idle", timestamp = NULL)
+  # save <- reactiveValues(status = "Idle", timestamp = NULL)
   
   con <- reactiveVal()
   assessors <- reactiveValues(data = NULL)
@@ -53,9 +53,11 @@ server <- function(input, output, session) {
                          multiple = FALSE, style = "margin-top: 20px;")
       )
     } else {
+        # print(input$db_file$files)
+      l_path <- length(input$db_file$files$`0`)
       tagList(
         # h3("Working with", db_path(), load$timestamp)#,
-        h3("Working with", input$db_file$files$`0`[[3]]),
+        h3("Working with", input$db_file$files$`0`[[l_path]]),
         h5(db_path())#,
         # actionButton("unload_db", "Unload database")
       )
@@ -130,7 +132,7 @@ server <- function(input, output, session) {
     req(db_path())
     load$status <- TRUE
     load$timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-    save$status <- "Saved ✔️"
+    # save$status <- "Saved ✔️"
     # print(db_path())
     
     withProgress({
@@ -157,25 +159,8 @@ server <- function(input, output, session) {
         simulations$data <- dbReadTable(con(), "simulations")
         questions$main <- dbReadTable(con(), "questions")
         questions$entry <- dbReadTable(con(), "pathwayQuestions")
-        # table2 <- dbReadTable(con(), "table2")
-        # table3 <- dbReadTable(con(), "table3")
-#         points$table2 <- table2 |> 
-#           pivot_longer(-ENT3.ENT2,
-#                        names_to = "ENT2", values_to = "Points") |> 
-#           mutate(ENT2 = gsub("\\.", " ", ENT2)) |> 
-#           rename(ENT3 = ENT3.ENT2)
-# # table2_exp <<- points$table2
-#         points$table3 <- table3 |> 
-#           pivot_longer(-EST3.EST2,
-#                        names_to = "EST2", values_to = "Points") |> 
-#           mutate(EST2 = gsub("\\.", " ", EST2)) |> 
-#           rename(EST3 = EST3.EST2)
-# # table3_exp <<- points$table3
-        
         points$main <- get_points_as_table(questions$main)
-# pointsmain_exp <<- points$main
         points$entry <- get_points_as_table(questions$entry)
-# pointsentry_exp <<- points$entry
      } #else { stop() }
         setProgress(1)
     }, message = "Läser in bakgrund data")
@@ -198,15 +183,25 @@ server <- function(input, output, session) {
              endDate = as_datetime(endDate, tz = "CET")) |> 
       left_join(pests$data, by = "idPest") |>
       left_join(assessors$data, by = "idAssessor") |>
+      left_join(simulations$data |> 
+                  group_by(idAssessment) |> 
+                  mutate(n_simulations = n()) |> 
+                  slice_max(date, n = 1, with_ties = FALSE) |> 
+                  ungroup(),
+                by = "idAssessment") |> 
+      mutate(n_simulations = replace_na(n_simulations, 0)) |> 
       select(idAssessment, scientificName, eppoCode, fullName, 
-             startDate, endDate, finished,	valid,	notes,	version)
+             startDate, endDate, finished,	valid,	notes,	version,
+             iterations, lambda, weight1, weight2, date, n_simulations)
 
     datatable(tab, 
               class = 'row-border stripe compact hover',
               extensions = 'Buttons', 
               rownames = FALSE, selection = 'single', autoHideNavigation = FALSE,
               colnames = c("Pest", "Pest species", "EPPO code", "Assessor", "Started", 
-                           "Last Edited", "Finished", "Valid", "Notes", "Version"),
+                           "Last Edited", "Finished", "Valid", "Notes", "Version",
+                           "Sim n. iterations", "Sim lambda", "Sim weight 1", "Sim weight 2", 
+                           "Sim last date", "N. simulations"),
               options = list(
                 columnDefs = list(
                   list(targets = c(0), visible = FALSE) # hides 1st column 
@@ -222,7 +217,7 @@ server <- function(input, output, session) {
                 paging = TRUE)
     ) |> 
       formatDate(columns = c('startDate'), method = 'toLocaleDateString') |> 
-      formatDate(columns = c('endDate'), method = 'toLocaleString')
+      formatDate(columns = c('endDate', 'date'), method = 'toLocaleString')
                      
   })
   
@@ -240,16 +235,27 @@ server <- function(input, output, session) {
     }
   )
   
-  ## when selecting assessment
+  ## Select assessment ----
   observeEvent(input$assessments_rows_selected, {
+    ## clear all input fields
+    # remove_inputs_by_prefix(input, "ENT", session)
+    # remove_inputs_by_prefix(input, "EST", session)
+    # remove_inputs_by_prefix(input, "MAN", session)
+    # remove_inputs_by_prefix(input, "IMP", session)
+    frominput$main <- NULL
+    frominput$entry <- NULL
+    
+    ## If no selection, clear selected assessment
     if (is.null(input$assessments_rows_selected)) {
       assessments$selected <- NULL
       assessments$entry <- NULL
       assessments$threats <- NULL
       answers$main <- NULL
       answers$entry <- NULL
+      # updateTabsetPanel(session, "all_assessments", selected = "all")
+      # removeUI("questionarie_tab", immediate = TRUE, multiple = TRUE)
     } else {
-  ## TODO watch here the selection process based on the filter options
+      ## TODO watch here the selection process based on the filter options
       assessments$selected <- assessments$data[input$assessments_rows_selected, ]
       
       assessments$selected <- assessments$selected |> 
@@ -277,8 +283,9 @@ server <- function(input, output, session) {
                                               FROM pathwayAnswers AS pa 
                                               LEFT JOIN entryPathways AS ep ON pa.idEntryPathway = ep.idEntryPathway
                                               WHERE pa.idEntryPathway IN ({paste(selected_entries$idEntryPathway, collapse = ', ')})"))
+                                              #WHERE ep.idPathway IN ({paste(selected_entries$idPathway, collapse = ', ')})"))
       
-      updateTabsetPanel(session, "all_assessments", selected = "2")
+      updateTabsetPanel(session, "all_assessments", selected = "sel")
         
     }
 
@@ -308,7 +315,7 @@ server <- function(input, output, session) {
     # Build card UI
     tagList(
       tags$div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
-               fluidRow(
+              fluidRow(
                  column(4, 
                         h3(em(ass_info$scientificName)),
                         h4(ass_info$fullName),
@@ -318,6 +325,7 @@ server <- function(input, output, session) {
                         checkboxInput("ass_finish", label = "Is finished?", value = ass_info$finished),
                         checkboxInput("ass_valid", label = "Is valid?", value = ass_info$valid),
                         downloadButton("download_report", "Download Assessment Report"),
+                        actionButton("save_general", "Save assessment details"),
                         uiOutput("species_summary")
                         ),
                  column(4,
@@ -338,16 +346,17 @@ server <- function(input, output, session) {
                                   uiOutput("entrypath_checkboxes")
                                   )
                   )
+              ),
+             fluidRow(
+               h4(strong("Notes"), style = "color:#7C6A56"),
+               textAreaInput("ass_notes", label = "", 
+                             value = ifelse(is.na(ass_info$notes), "", ass_info$notes),
+                             width = "auto", height = "500px", resize = "vertical")
                )
-      ),
-      tags$div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
-               fluidRow(
-                 textAreaInput("ass_notes", label = "Notes", 
-                               value = ifelse(is.na(ass_info$notes), "", ass_info$notes),
-                               width = "auto", height = "500px", resize = "vertical")
-                 )
-      ),
-      br()
+      )#,
+      # tags$div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
+      # ),
+      # br()
     )
     
   })
@@ -357,6 +366,17 @@ server <- function(input, output, session) {
     filename = function() { paste0("assessment_report_", assessments$selected$label, ".docx") },
     content = function(file) {
       req(assessments$selected)
+      # Check if assessment is finished
+      if (is.null(assessments$selected$finished) || !assessments$selected$finished) {
+        shinyalert(
+          title = "Assessment Not Finished",
+          text = "You cannot download the report because the assessment is not completed.",
+          type = "error"
+        )
+        return(NULL)  # Stop the download
+      }
+      
+      # Proceed if finished
       file_path <- report_assessment(con(), assessments$selected, questions$main, answers$main, 
                                      assessments$entry, questions$entry, answers$entry, 
                                      simulations$data)
@@ -378,9 +398,9 @@ server <- function(input, output, session) {
     tagList(
       div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
           h4(strong("Pest species information"), style = "color:#7C6A56"),
-          p(ass_info$vernacularName),
+          p(ifelse(!is.na(ass_info$vernacularName), ass_info$vernacularName, "")),
           p(strong("EPPO code: "), ass_info$eppoCode),
-          p(strong("GBIF uuid: "), ass_info$gbifuuid),
+          p(strong("GBIF taxon key: "), ass_info$gbifTaxonKey),
           p(strong("Synonyms: "), em(ass_info$synonyms)),
           p(strong("Taxonomic Group: "), taxa),
           p(strong("Quarantine Status: "), quaran),
@@ -422,50 +442,6 @@ server <- function(input, output, session) {
   })
    
 
-#   # observeEvent(assessments$selected_pathways,{
-#     # req(assessments$selected)
-# # print(input$ass_pot_entry_path)
-# print("triggered")
-#     # n_entry <- length(input$ass_pot_entry_path)
-#     # print(input$pot_entry_path)
-#     # assessments$entry <- vector(mode = "list", length = n_entry)
-#     # names(assessments$entry) <- input$ass_pot_entry_path
-#     
-#     # removeUI("questionariePath", session)
-#     # Insert associated entry pathways
-#     selected_pathways <- assessments$selected_pathways #<-input$ass_pot_entry_path
-#     current_pathways <- names(assessments$entry)
-#     paths_to_add <- setdiff(selected_pathways, current_pathways)
-#     paths_to_remove <- setdiff(current_pathways, selected_pathways)
-#     # Add new pathways
-#     if (length(paths_to_add) > 0) {
-#       for (path_id in paths_to_add) {
-#         dbExecute(con(), "INSERT INTO entryPathways(idAssessment, idPathway) VALUES(?, ?)",
-#                   params = list(assessments$selected$idAssessment, path_id))
-#       }
-#     }
-#     
-#     # Remove unchecked pathways
-#     if (length(paths_to_remove) > 0) {
-#       for (path_id in paths_to_remove) {
-#       ### CAUTION here we delete also the answers for this pathway in a cascade
-#         dbExecute(con(), "DELETE FROM entryPathways WHERE idAssessment = ? AND idPathway = ?",
-#                   params = list(assessments$selected$idAssessment, path_id))
-#       }
-#     }
-#     
-#     # selected_entries <- dbGetQuery(con(), glue("SELECT * FROM entryPathways 
-#     #                                              -- LEFT JOIN pathways ON entryPathways.idPathway = pathways.idPathway
-#     #                                              WHERE idAssessment = {assessments$selected$idAssessment}"))
-#     # if (nrow(selected_entries) > 0) {
-#     #   assessments$entry <- vector(mode = "list", length = nrow(selected_entries))
-#     #   names(assessments$entry) <- selected_entries$idPathway
-#     # } else {
-#     #   assessments$entry <- NULL
-#     # }
-#     
-#   })
-  
   ### Threat checkboxes (pull from DB table Threatened Sectors) ----
   output$threat_checkboxes <- renderUI({
     req(assessments$selected)
@@ -562,6 +538,7 @@ server <- function(input, output, session) {
     req(questions$main)
     req(answers$main)
     req(assessments$selected)
+    req(input$assessments_rows_selected)
     
     quesEnt <- questions$main |> filter(group == "ENT") |> arrange(number)
     quesEst <- questions$main |> filter(group == "EST") |> arrange(number)
@@ -569,13 +546,13 @@ server <- function(input, output, session) {
     quesMan <- questions$main |> filter(group == "MAN") |> arrange(number)
     answers_logical <- answers_2_logical(answers$main, questions$main)
     tagList(
-      tabsetPanel(
-        tabPanel(id = "info", 
+      tabsetPanel(id = "questionarie_tab",
+        tabPanel(id = "info", value = 1, 
                  title = "General Information",
                  uiOutput("assessment_summary")
         ),
         tabPanel(id = "entry", 
-                 title = "Entry",
+                 title = "Entry", value = 2, 
                  lapply(1:nrow(quesEnt), 
                         function(x){
                           question <- quesEnt$question[x]
@@ -587,26 +564,21 @@ server <- function(input, output, session) {
                             pull(justification)
                           # print(answers$main |> filter(idQuestion == quesEnt$idQuestion[x]))
                           tagList(
-                            h4(glue("ENT {id}: {question}"), 
+                            div(style = "display: flex; align-items: center; gap: 8px;",
+                              h4(glue("ENT {id}: {question}")),
+                              h4("(i)",
                                tags$span(HTML(info), 
                                          style = "color:black; font-size: 12px;"),
-                               class = "bubble"),
+                               class = "bubble")
+                            ),
                             fluidRow(
                               div(style = "margin: 20px;",
-                                  # column(5,
-                                  # för info
-                                  # tags$p(icon("pencil", class = "fas"), 
-                                  #        tags$span("Redigera projektet", style = "color:black;"), 
-                                  #        class = "bubble", style = "color:#FEAB3B;"))),
                                   render_quest_tab("ENT", id, question,
                                                    fromJSON(options)$opt,
                                                    fromJSON(options)$text,
                                                    answers_logical),
-                                  #        # ),
-                                  # column(7,
-                                  # uiOutput("ENT1_warning"),
                                   br(),
-                                  textAreaInput(glue("justEnt{id}"),
+                                  textAreaInput(glue("justENT{id}"),
                                                 label = "Justification",
                                                 value = just,  
                                                 width = 'auto',
@@ -621,7 +593,7 @@ server <- function(input, output, session) {
                  br(),
                  uiOutput("questionariePath")
         ),
-        tabPanel(id = "est", 
+        tabPanel(id = "est", value = 3, 
                  title = "Establishment and Spread",
                  lapply(1:nrow(quesEst), 
                         function(x){
@@ -633,21 +605,21 @@ server <- function(input, output, session) {
                             filter(idQuestion == quesEst$idQuestion[x]) |> 
                             pull(justification)
                           tagList(
-                            h4(glue("EST {id}: {question}"),
-                               tags$span(HTML(info), 
-                                         style = "color:black; font-size: 12px;"), 
-                               class = "bubble"),
+                            div(style = "display: flex; align-items: center; gap: 8px;",
+                                h4(glue("EST {id}: {question}")),
+                                h4("(i)",
+                                   tags$span(HTML(info), 
+                                             style = "color:black; font-size: 12px;"),
+                                   class = "bubble")
+                            ),
                             fluidRow(
                               div(style = "margin: 20px;",
-                                  # column(5,
                                   render_quest_tab("EST", id, question,
                                                    fromJSON(options)$opt,
                                                    fromJSON(options)$text,
                                                    answers_logical),
-                                  # ),
-                                  # column(7,
                                   br(),
-                                  textAreaInput(glue("justEst{id}"),
+                                  textAreaInput(glue("justEST{id}"),
                                                 label = "Justification",
                                                 value = just,  
                                                 width = 'auto',
@@ -660,7 +632,7 @@ server <- function(input, output, session) {
                           )
                         })
         ),
-        tabPanel(id = "imp", 
+        tabPanel(id = "imp", value = 4, 
                  title = "Impact",
                  lapply(1:nrow(quesImp),
                         function(x){
@@ -673,35 +645,34 @@ server <- function(input, output, session) {
                             pull(justification)
                           type <- quesImp$type[x]
                           tagList(
-                            h4(glue("IMP {id}: {question}"), 
-                               tags$span(HTML(info), 
-                                         style = "color:black; font-size: 12px;"), 
-                               class = "bubble"),
+                            div(style = "display: flex; align-items: center; gap: 8px;",
+                                h4(glue("IMP {id}: {question}")),
+                                h4("(i)",
+                                   tags$span(HTML(info), 
+                                             style = "color:black; font-size: 12px;"),
+                                   class = "bubble")
+                            ),
                             fluidRow(
                               div(style = "margin: 20px;",
-                                  # column(5,
                                   render_quest_tab("IMP", id, question,
                                                    fromJSON(options)$opt,
                                                    fromJSON(options)$text,
                                                    answers_logical,
                                                    type),
-                                  # ),
-                                  # column(7,
                                   br(),
-                                  textAreaInput(glue("justImp{id}"),
+                                  textAreaInput(glue("justIMP{id}"),
                                                 label = "Justification",
                                                 value = just,  
                                                 width = 'auto',
                                                 height = '150px',
                                                 resize = "vertical")
-                                  # )
                               )
                             ),
                             hr(style = "border-color: gray;")
                           )
                         })
         ),
-        tabPanel(id = "man", 
+        tabPanel(id = "man", value = 5, 
                  title = "Management",
                  lapply(1:nrow(quesMan),
                         function(x){
@@ -714,34 +685,33 @@ server <- function(input, output, session) {
                             pull(justification)
                           sub <- quesMan$subgroup[x]
                           tagList(
-                            h4(glue("MAN {id}: {question}"), 
-                               tags$span(HTML(info), 
-                                         style = "color:black; font-size: 12px;"),
-                               class = "bubble"),
+                            div(style = "display: flex; align-items: center; gap: 8px;",
+                                h4(glue("MAN {id}: {question}")),
+                                h4("(i)",
+                                   tags$span(HTML(info), 
+                                             style = "color:black; font-size: 12px;"),
+                                   class = "bubble")
+                            ),
                             fluidRow(
                               div(style = "margin: 20px;",
-                                  # column(5,
                                   render_quest_tab("MAN", id, question,
                                                    fromJSON(options)$opt,
                                                    fromJSON(options)$text,
                                                    answers_logical),
-                                  #        ),
-                                  # column(7,
                                   br(),
-                                  textAreaInput(glue("justMan{id}"),
+                                  textAreaInput(glue("justMAN{id}"),
                                                 label = "Justification",
                                                 value = just,  
                                                 width = 'auto',
                                                 height = '150px',
                                                 resize = "horizontal")
-                                  # )
                               )
                             ),
                             hr(style = "border-color: gray;")
                           )
                         })
         ),
-        tabPanel(id = "ref", 
+        tabPanel(id = "ref", value = 6, 
                  title = "References",
                  br(),
                  textAreaInput("ass_reftext",
@@ -752,7 +722,7 @@ server <- function(input, output, session) {
                                height = '500px',
                                resize = "both")
         ),
-        tabPanel(id = "sim", 
+        tabPanel(id = "sim", value = 7, 
                  title = "Simulation",
                  br(),
                  tagList(
@@ -817,7 +787,6 @@ server <- function(input, output, session) {
   
   ### Control all inputs dynamically ----
   observe({
-    # req(questions$main)
     req(assessments$selected)
     answ_ent <- extract_answers(questions$main, groupTag = "ENT", input)
     answ_est <- extract_answers(questions$main, groupTag = "EST", input)
@@ -827,38 +796,7 @@ server <- function(input, output, session) {
 
     frominput$main <- get_inputs_as_df(answ_all, input) #, points$main
     
-    if (!is.null(assessments$entry)) {
-      answ_ent_path <- extract_answers_entry(questions$entry, groupTag = "ENT", 
-                                        path = names(assessments$entry), 
-                                        input)
-      
-      any_non <- any(!lapply(answ_ent_path, is.null) |> unlist())
-      
-      if(any_non){
-        frominput$entry <- get_inputs_path_as_df(answ_ent_path, input) 
-      } else {
-        frominput$entry <- NULL
-      }
-    } else {
-      frominput$entry <- NULL
-    }
-    # save$status <- "Pending"
-
   })
-  
-  # observeEvent(frominput$entry, {
-  #   print("triggered")
-  #   save$status <- "Pending"
-  # })
-  
-  # for (group in c("ENT1", "EST1", "EST2", "IMP1", "IMP2", "MAN1")) {
-  #   local({
-  #     g <- group
-  #     answers <- extract_answers(questions$main, g, input)
-  #     print(answers)
-  #     # output[[paste0(g, "_warning")]] <- render_severity_warning(g, answers)
-  #   })
-  # }
   
   #### Error message for order of minimum likely maximum ----
   lapply(c("ENT1", "EST1", "EST2", "EST3", "EST4", "IMP1", "IMP3", 
@@ -887,10 +825,17 @@ server <- function(input, output, session) {
                  filter(idPathway == x) |>
                  pull(name),
                 div(style = "margin: 20px;",
-                   h4(glue("ENT 2A: {questions$entry$question[1]}"), 
-                      tags$span(HTML(questions$entry$info[1]), 
-                                style = "color:black; font-size: 12px;"), 
-                      class = "bubble"),
+                    div(style = "display: flex; align-items: center; gap: 8px;",
+                        h4(glue("ENT 2A: {questions$entry$question[1]}")),
+                        h4("(i)",
+                           tags$span(HTML(questions$entry$info[1]), 
+                                     style = "color:black; font-size: 12px;"),
+                           class = "bubble")
+                    ),
+                    # h4(glue("ENT 2A: {questions$entry$question[1]}"), 
+                    #   tags$span(HTML(questions$entry$info[1]), 
+                    #             style = "color:black; font-size: 12px;"), 
+                    #   class = "bubble"),
                    render_quest_tab("ENT", paste0(questions$entry$number[1],"_", 
                                                   rep(x, length(questions$entry$number[1]))),
                                     questions$entry$question[1], 
@@ -898,20 +843,27 @@ server <- function(input, output, session) {
                                     fromJSON(questions$entry$list[1])$text,
                                     answers_path_2_logical(answers$entry, questions$entry)),
                    br(),
-                   textAreaInput(glue("justEnt2A_{x}"),
+                   textAreaInput(glue("justENT2A_{x}"),
                                  label = "Justification",
-                                 value = answers$entry |> 
-                                   filter(idEntryPathway == x, idPathQuestion == 1) |> 
+                                 value = answers$entry |>
+                                   filter(idPathway == x, idPathQuestion == 1) |>
                                    pull(justification),
                                  width = 'auto',
                                  height = '150px',
                                  resize = "vertical"),
                    # ),
                    hr(style = "border-color: gray;"),
-                   h4(glue("ENT 2B: {questions$entry$question[2]}"), 
-                      tags$span(HTML(questions$entry$info[2]), 
-                                style = "color:black; font-size: 12px;"), 
-                      class = "bubble"),
+                   div(style = "display: flex; align-items: center; gap: 8px;",
+                       h4(glue("ENT 2b: {questions$entry$question[2]}")),
+                       h4("(i)",
+                          tags$span(HTML(questions$entry$info[2]), 
+                                    style = "color:black; font-size: 12px;"),
+                          class = "bubble")
+                   ),
+                   # h4(glue("ENT 2B: {questions$entry$question[2]}"), 
+                   #    tags$span(HTML(questions$entry$info[2]), 
+                   #              style = "color:black; font-size: 12px;"), 
+                   #    class = "bubble"),
                     render_quest_tab("ENT", paste0(questions$entry$number[2],"_", 
                                                    rep(x, length(questions$entry$number[2]))),
                                      questions$entry$question[2], 
@@ -919,19 +871,26 @@ server <- function(input, output, session) {
                                      fromJSON(questions$entry$list[2])$text,
                                      answers_path_2_logical(answers$entry, questions$entry)),
                    br(),
-                    textAreaInput(glue("justEnt2B_{x}"),
+                    textAreaInput(glue("justENT2B_{x}"),
                                   label = "Justification",
                                   value = answers$entry |> 
-                                    filter(idEntryPathway == x, idPathQuestion == 2) |> 
+                                    filter(idPathway == x, idPathQuestion == 2) |> 
                                     pull(justification),
                                   width = 'auto',
                                   height = '150px',
                                   resize = "vertical"),
                    tags$hr(style = "border-color: gray;"),
-                   h4(glue("ENT 3: {questions$entry$question[3]}"), 
-                      tags$span(HTML(questions$entry$info[3]), 
-                                style = "color:black; font-size: 12px;"), 
-                      class = "bubble"),
+                   div(style = "display: flex; align-items: center; gap: 8px;",
+                       h4(glue("ENT 3: {questions$entry$question[3]}")),
+                       h4("(i)",
+                          tags$span(HTML(questions$entry$info[3]), 
+                                    style = "color:black; font-size: 12px;"),
+                          class = "bubble")
+                   ),
+                   # h4(glue("ENT 3: {questions$entry$question[3]}"), 
+                   #    tags$span(HTML(questions$entry$info[3]), 
+                   #              style = "color:black; font-size: 12px;"), 
+                   #    class = "bubble"),
                     render_quest_tab("ENT", paste0(questions$entry$number[3],"_", 
                                                    rep(x, length(questions$entry$number[3]))),
                                      questions$entry$question[3],
@@ -939,19 +898,26 @@ server <- function(input, output, session) {
                                      fromJSON(questions$entry$list[3])$text,
                                      answers_path_2_logical(answers$entry, questions$entry)),
                    br(),
-                    textAreaInput(glue("justEnt3_{x}"),
+                    textAreaInput(glue("justENT3_{x}"),
                                   label = "Justification",
                                   value = answers$entry |> 
-                                    filter(idEntryPathway == x, idPathQuestion == 3) |> 
+                                    filter(idPathway == x, idPathQuestion == 3) |> 
                                     pull(justification),
                                   width = 'auto',
                                   height = '150px',
                                   resize = "vertical"),
                    tags$hr(style = "border-color: gray;"),
-                   h4(glue("ENT 4: {questions$entry$question[4]}"), 
-                      tags$span(HTML(questions$entry$info[4]),
-                                style = "color:black; font-size: 12px;"),
-                      class = "bubble"),
+                   div(style = "display: flex; align-items: center; gap: 8px;",
+                       h4(glue("ENT 4: {questions$entry$question[4]}")),
+                       h4("(i)",
+                          tags$span(HTML(questions$entry$info[4]), 
+                                    style = "color:black; font-size: 12px;"),
+                          class = "bubble")
+                   ),
+                   # h4(glue("ENT 4: {questions$entry$question[4]}"), 
+                   #    tags$span(HTML(questions$entry$info[4]),
+                   #              style = "color:black; font-size: 12px;"),
+                   #    class = "bubble"),
                     render_quest_tab("ENT", paste0(questions$entry$number[4],"_", 
                                                    rep(x, length(questions$entry$number[4]))),
                                      questions$entry$question[4], 
@@ -959,10 +925,10 @@ server <- function(input, output, session) {
                                      fromJSON(questions$entry$list[4])$text,
                                      answers_path_2_logical(answers$entry, questions$entry)),
                    br(),
-                    textAreaInput(glue("justEnt4_{x}"),
+                    textAreaInput(glue("justENT4_{x}"),
                                   label = "Justification",
                                   value = answers$entry |> 
-                                    filter(idEntryPathway == x, idPathQuestion == 4) |> 
+                                    filter(idPathway == x, idPathQuestion == 4) |> 
                                     pull(justification),
                                   width = 'auto',
                                   height = '150px',
@@ -975,6 +941,30 @@ server <- function(input, output, session) {
     ui <- do.call(tabsetPanel, tabs)
     return(ui)
   })
+  
+  ### Observe inputs for Entries ----
+  observe({
+    # req(assessments$entry)
+    
+    if (!is.null(assessments$entry)) {
+      answ_ent_path <- extract_answers_entry(questions$entry, groupTag = "ENT", 
+                                             path = names(assessments$entry), 
+                                             input)
+      
+      any_non <- any(!lapply(answ_ent_path, is.null) |> unlist())
+      
+      if(any_non){
+        frominput$entry <- get_inputs_path_as_df(answ_ent_path, input) 
+      } else {
+        frominput$entry <- NULL
+        # remove_inputs_by_prefix(input, "ENT", session)
+      }
+    } else {
+      frominput$entry <- NULL
+      # remove_inputs_by_prefix(input, "ENT", session)
+    }
+  })
+  
   
   #### Error message for entry pathways questions ----
   # this is hardcoded for now
@@ -1120,70 +1110,66 @@ server <- function(input, output, session) {
   
   observeEvent(input$ass_valid, {
     req(answers$main)
-    if (assessments$selected$finished) {
-      others <- assessments$data |> 
-        filter(idAssessment != assessments$selected$idAssessment,
-               idPest == assessments$selected$idPest,
-               valid == 1)
-# print(others)
-      if(nrow(others) > 0) {
-  ## is there another assessment for the species also valid?
-        shinyalert(
-          title = "There are other assessment marked as valid",
-          text = "For this species, there is another assessment marked as valid. \n Would you lke to make this the valid one?",
-          type = "info", 
-          showConfirmButton = TRUE, showCancelButton = TRUE,
-          confirmButtonText = "YES", cancelButtonText = "NO",  
-          timer = 0, animation = TRUE,
-          callbackR = function(value) { 
-            if (value) {
-              dbExecute(con(), "UPDATE assessments SET valid = ? WHERE idAssessment = ?",
-                        params = list(0, others$idAssessment))
-              
-              dbExecute(con(), "UPDATE assessments SET valid = ? WHERE idAssessment = ?",
-                        params = list(as.integer(input$ass_valid),
-                                      assessments$selected$idAssessment))
-            }})  # END if Value, callback, shinyAlert
+    if (input$ass_valid){
+      
+      if (assessments$selected$finished) {
+        others <- assessments$data |> 
+          filter(idAssessment != assessments$selected$idAssessment,
+                 idPest == assessments$selected$idPest,
+                 valid == 1)
+        if(nrow(others) > 0) {
+    ## is there another assessment for the species also valid?
+          shinyalert(
+            title = "There are other assessment marked as valid",
+            text = "For this species, there is another assessment marked as valid. \n Would you lke to make this the valid one?",
+            type = "info", 
+            showConfirmButton = TRUE, showCancelButton = TRUE,
+            confirmButtonText = "YES", cancelButtonText = "NO",  
+            timer = 0, animation = TRUE,
+            callbackR = function(value) { 
+              if (value) {
+                dbExecute(con(), "UPDATE assessments SET valid = ? WHERE idAssessment = ?",
+                          params = list(0, others$idAssessment))
+                
+                dbExecute(con(), "UPDATE assessments SET valid = ? WHERE idAssessment = ?",
+                          params = list(as.integer(input$ass_valid),
+                                        assessments$selected$idAssessment))
+              }})  # END if Value, callback, shinyAlert
+          
+          
+        } else {
+          dbExecute(con(), "UPDATE assessments SET valid = ? WHERE idAssessment = ?",
+                    params = list(as.integer(input$ass_valid),
+                                  assessments$selected$idAssessment))
+        }
         
+        assessments$data <- dbReadTable(con(), "assessments")
+        assessments$selected <- assessments$data[input$assessments_rows_selected, ]
+        assessments$selected <- assessments$selected |> 
+          left_join(pests$data, by = "idPest") |>
+          left_join(assessors$data, by = "idAssessor") |> 
+          mutate(label = paste(scientificName, eppoCode, 
+                               paste(firstName, lastName), startDate, 
+                               sep = "_"))
         
+        # save$status <- "Pending"
       } else {
-        dbExecute(con(), "UPDATE assessments SET valid = ? WHERE idAssessment = ?",
-                  params = list(as.integer(input$ass_valid),
-                                assessments$selected$idAssessment))
+        # shinyalert(
+        #   title = "The assessment is not finished",
+        #   text = "Please complete the questionaire and mark it as finished before selecting it as valid.",
+        #   type = "warning"
+        # )
+        updateCheckboxInput(session, "ass_valid", value = FALSE)
       }
-      
-      assessments$data <- dbReadTable(con(), "assessments")
-      assessments$selected <- assessments$data[input$assessments_rows_selected, ]
-      assessments$selected <- assessments$selected |> 
-        left_join(pests$data, by = "idPest") |>
-        left_join(assessors$data, by = "idAssessor") |> 
-        mutate(label = paste(scientificName, eppoCode, 
-                             paste(firstName, lastName), startDate, 
-                             sep = "_"))
-      
-      # save$status <- "Pending"
-    } else {
-      # shinyalert(
-      #   title = "The assessment is not finished",
-      #   text = "Please complete the questionaire and mark it as finished before selecting it as valid.",
-      #   type = "warning"
-      # )
-      updateCheckboxInput(session, "ass_valid", value = FALSE)
-    }
+    } # if not set to true, dont bother
   }, ignoreInit = TRUE)
   
-  # Save Assessment
-  observeEvent(input$save, {
+  ## Save general information ----
+  observeEvent(input$save_general, {
     
     req(assessments$selected)
     req(assessments$threats)
-    # req(frominput$main)
-    # req(answers$main)
-    # req(answers$entry)
-    # req(input$ass_pot_entry_path_text)
-    
-    # save$status <- "Saving..."
-    
+    tab_now <- input$questionarie
     # Save assessment general info
     dbExecute(con(), "UPDATE assessments SET endDate = ?, 
                                               hosts = ?,
@@ -1197,7 +1183,7 @@ server <- function(input, output, session) {
                             input$ass_reftext,
                             input$ass_notes,
                             assessments$selected$idAssessment))
-
+    
     assessments$data <- dbReadTable(con(), "assessments")
     assessments$selected <- assessments$data[input$assessments_rows_selected, ]
     
@@ -1212,32 +1198,102 @@ server <- function(input, output, session) {
     threat_groups <- unique(threats$data$threatGroup)
     selected_threats <- sapply(threat_groups, function(group) {
       input[[paste0("group_", group)]]
-      }, simplify = TRUE) |> unlist() |> as.integer()
+    }, simplify = TRUE) |> unlist() |> as.integer()
     
     threats_to_add <- setdiff(selected_threats, assessments$threats$idThrSect)
     threats_to_remove <- setdiff(assessments$threats$idThrSect, selected_threats)
-
+    
     # Add new threats
     if (length(threats_to_add) > 0) {
-        for (threat_id in threats_to_add) {
-          dbExecute(con(), "INSERT INTO threatXassessment(idAssessment, idThrSect) VALUES(?, ?)",
-                    params = list(assessments$selected$idAssessment, threat_id))
-        }
+      for (threat_id in threats_to_add) {
+        dbExecute(con(), "INSERT INTO threatXassessment(idAssessment, idThrSect) VALUES(?, ?)",
+                  params = list(assessments$selected$idAssessment, threat_id))
+      }
     }
-
+    
     # Remove unchecked threats
     if (length(threats_to_remove) > 0) {
-        for (threat_id in threats_to_remove) {
-          dbExecute(con(), "DELETE FROM threatXassessment WHERE idAssessment = ? AND idThrSect = ?",
-                    params = list(assessments$selected$idAssessment, threat_id))
-        }
+      for (threat_id in threats_to_remove) {
+        dbExecute(con(), "DELETE FROM threatXassessment WHERE idAssessment = ? AND idThrSect = ?",
+                  params = list(assessments$selected$idAssessment, threat_id))
+      }
     }
-  
+    
     assessments$threats <- dbGetQuery(con(), glue("SELECT idThreat, threatXassessment.idThrSect, threatGroup, name FROM threatXassessment
                                              LEFT JOIN threatenedSectors ON threatXassessment.idThrSect = threatenedSectors.idThrSect
                                              WHERE idAssessment = {as.integer(assessments$selected$idAssessment)}"))
     
-
+    ### save entry pathways
+    # selected_pathways <- assessments$selected_pathways
+    selected_pathways <- input$ass_pot_entry_path
+    current_pathways <- names(assessments$entry)
+    paths_to_add <- setdiff(selected_pathways, current_pathways) |> as.integer()
+    paths_to_remove <- setdiff(current_pathways, selected_pathways) |> as.integer()
+    
+    # Add new pathways
+    if (length(paths_to_add) > 0) {
+      for (path_id in paths_to_add) {
+        dbExecute(con(), "INSERT INTO entryPathways(idAssessment, idPathway) VALUES(?, ?)",
+                  params = list(assessments$selected$idAssessment, path_id))
+      }
+      updateTabsetPanel(session, "questionarie_tab", selected = tab_now)
+    } # end add
+    
+    selected_entries <- dbGetQuery(con(), glue("SELECT * FROM entryPathways 
+                                               WHERE idAssessment = {assessments$selected$idAssessment}"))
+    if (nrow(selected_entries) > 0) {
+      assessments$entry <- vector(mode = "list", length = nrow(selected_entries))
+      names(assessments$entry) <- selected_entries$idPathway
+    } else {
+      assessments$entry <- NULL
+    }
+    
+    # Remove unchecked pathways
+    if (length(paths_to_remove) > 0) {
+      for (path_id in paths_to_remove) {
+        idEntryPath <- dbGetQuery(con(), "SELECT idEntryPathway FROM entryPathways 
+                                 WHERE idAssessment = ? AND idPathway = ?",
+                                  params = list(assessments$selected$idAssessment, path_id)) |>
+          pull(idEntryPathway)
+        ### CAUTION here we delete also the answers for this pathway in a cascade
+        dbExecute(con(), "DELETE FROM pathwayAnswers WHERE idEntryPathway = ?",
+                  params = list(idEntryPath))
+        dbExecute(con(), "DELETE FROM entryPathways WHERE idEntryPathway = ?",
+                  params = list(idEntryPath))
+        
+      }
+      # assessments$selected <- NULL
+      # assessments$entry <- NULL
+      updateTabsetPanel(session, "all_assessments", selected = "all")
+      proxyassessments |> selectRows(NULL)  
+    } # end remove
+    
+    shinyalert(
+      title = "Success",
+      text = "Assessment details saved successfully.",
+      type = "success",
+      timer = 1000,
+    )
+    
+  }, ignoreInit = TRUE)
+  
+  observe({
+    req(input$questionarie_tab)
+    # print(input$questionarie_tab)
+    if(input$questionarie_tab %in% c(1,7)) {
+      shinyjs::hide(id = "save_answers")
+    } else {
+      shinyjs::show(id = "save_answers", anim = TRUE, animType = "fade")
+    }
+  })
+  
+  ## Save all answers in Assessment ----
+  observeEvent(input$save_answers, {
+     # req(input$ass_pot_entry_path)
+     tab_now <- input$questionarie
+     selected_entries <- dbGetQuery(con(), glue("SELECT * FROM entryPathways
+                                               WHERE idAssessment = {assessments$selected$idAssessment}"))
+ 
     # Proceed with saving the ANSWERS IN assessment
     resmain <- frominput$main 
 
@@ -1292,114 +1348,81 @@ server <- function(input, output, session) {
       } # end for main answers
       
     } # end if nrow resmain
-    
-    ## Save potential entry pathways text ----
-    ### save entry answers
-    selected_pathways <- assessments$selected_pathways
-    current_pathways <- names(assessments$entry)
-    paths_to_add <- setdiff(selected_pathways, current_pathways) |> as.integer()
-    paths_to_remove <- setdiff(current_pathways, selected_pathways) |> as.integer()
+    answers$main <- dbGetQuery(con(), glue("SELECT * FROM answers WHERE idAssessment = {assessments$selected$idAssessment}"))
 
-    # Add new pathways
-    if (length(paths_to_add) > 0) {
-      for (path_id in paths_to_add) {
-        dbExecute(con(), "INSERT INTO entryPathways(idAssessment, idPathway) VALUES(?, ?)",
-                  params = list(assessments$selected$idAssessment, path_id))
-      }
-    }
-    
-    # Remove unchecked pathways
-    if (length(paths_to_remove) > 0) {
-      for (path_id in paths_to_remove) {
-        idEntryPath <- dbGetQuery(con(), "SELECT idEntryPathway FROM entryPathways 
-                                 WHERE idAssessment = ? AND idPathway = ?",
-                                 params = list(assessments$selected$idAssessment, path_id)) |>
-          pull(idEntryPathway)
-        ### CAUTION here we delete also the answers for this pathway in a cascade
-        dbExecute(con(), "DELETE FROM entryPathways WHERE idEntryPathway = ?",
-                  params = list(idEntryPath))
-        dbExecute(con(), "DELETE FROM pathwayAnswers WHERE idEntryPathway = ?",
-                  params = list(idEntryPath))
-      }
-    }
-    
-    selected_entries <- dbGetQuery(con(), glue("SELECT * FROM entryPathways 
-                                               WHERE idAssessment = {assessments$selected$idAssessment}"))
-
-    if (nrow(selected_entries) > 0) {
-      assessments$entry <- vector(mode = "list", length = nrow(selected_entries))
-      names(assessments$entry) <- selected_entries$idPathway
-    } else {
-      assessments$entry <- NULL
-    }
-    
+# print(names(assessments$entry))
     if (!is.null(assessments$entry)) {
-      answ_ent <- extract_answers_entry(questions$entry, groupTag = "ENT", 
+      answ_ent_path <- extract_answers_entry(questions$entry, groupTag = "ENT", 
                                          path = names(assessments$entry), 
                                          input)
       
-      any_non <- any(!lapply(answ_ent, is.null) |> unlist())
-      
-      if(any_non){
-        # resentry <- get_inputs_path_as_df(answ_ent, input) 
-        resentry <- frominput$entry
+      any_non <- any(!lapply(answ_ent_path, is.null) |> unlist())
 
-        for (i in 1:nrow(resentry)) {
-          # Check if the answer already exists
-          idQue <- questions$entry |> 
-            filter(group == substr(resentry$question[i], 1, 3),
-                   number == substr(resentry$question[i], 4, nchar(resentry$question[i]))) |> 
-            pull(idPathQuestion)
+      if(any_non){
+        frominput$entry <- get_inputs_path_as_df(answ_ent_path, input) 
+# print(frominput$entry)
+        resentry <- frominput$entry
+        if (!is.null(resentry)) {
+          if(nrow(resentry) >= 1) {
+            for (i in 1:nrow(resentry)) {
+              # Check if the answer already exists
+              idQue <- questions$entry |> 
+                filter(group == substr(resentry$question[i], 1, 3),
+                       number == substr(resentry$question[i], 4, nchar(resentry$question[i]))) |> 
+                pull(idPathQuestion)
+        
+              idEntry <- selected_entries |> 
+                filter(idPathway == resentry$path[i]) |> 
+                pull(idEntryPathway)
+              if (length(idEntry) == 0 | length(idQue) == 0){
+                next
+              }
     
-          idEntry <- selected_entries |> 
-            filter(idPathway == resentry$path[i]) |> 
-            pull(idEntryPathway)
-    
-          existing <- dbGetQuery(con(), "SELECT COUNT(*) as count FROM pathwayAnswers
-                                        WHERE idEntryPathway = ? AND idPathQuestion = ?",
-                                 params = list(idEntry, idQue))
-          if (existing$count[1] > 0) { 
-            # Update existing answer
-            dbExecute(con(), "UPDATE pathwayAnswers SET min = ?, likely = ?, max = ?, justification = ?
-                              WHERE idEntryPathway = ? AND idPathQuestion = ?",
-                      params = list(
-                        as.character(resentry$minimum[i]),
-                        as.character(resentry$likely[i]),
-                        as.character(resentry$maximum[i]),
-                        as.character(resentry$justification[i]),
-                        as.integer(idEntry),
-                        as.integer(idQue)
-                      )
-            )
-          } else {
-            # Insert new answer
-            dbExecute(con(), "INSERT INTO pathwayAnswers(idEntryPathway, idPathQuestion,
-                              min, likely, max, justification)
-                              VALUES(?, ?, ?, ?, ?, ?)",
-                      params = list(
-                        as.integer(idEntry),
-                        as.integer(idQue),
-                        as.character(resentry$minimum[i]),
-                        as.character(resentry$likely[i]),
-                        as.character(resentry$maximum[i]),
-                        as.character(resentry$justification[i])
-                      )
-            )
-          }
-        }
+              existing <- dbGetQuery(con(), "SELECT COUNT(*) as count FROM pathwayAnswers
+                                            WHERE idEntryPathway = ? AND idPathQuestion = ?",
+                                     params = list(idEntry, idQue))
+              if (existing$count[1] > 0) { 
+                # Update existing answer
+                dbExecute(con(), "UPDATE pathwayAnswers SET min = ?, likely = ?, max = ?, justification = ?
+                                  WHERE idEntryPathway = ? AND idPathQuestion = ?",
+                          params = list(
+                            as.character(resentry$minimum[i]),
+                            as.character(resentry$likely[i]),
+                            as.character(resentry$maximum[i]),
+                            as.character(resentry$justification[i]),
+                            as.integer(idEntry),
+                            as.integer(idQue)
+                          )
+                )
+              } else {
+                # Insert new answer
+                dbExecute(con(), "INSERT INTO pathwayAnswers(idEntryPathway, idPathQuestion,
+                                  min, likely, max, justification)
+                                  VALUES(?, ?, ?, ?, ?, ?)",
+                          params = list(
+                            as.integer(idEntry),
+                            as.integer(idQue),
+                            as.character(resentry$minimum[i]),
+                            as.character(resentry$likely[i]),
+                            as.character(resentry$maximum[i]),
+                            as.character(resentry$justification[i])
+                          )
+                )
+              }
+            } # end loop resentry
+          } # end if resentry not empty
+        } # end if resentry
       } # end if any non null
+      answers$entry <- dbGetQuery(con(), glue("SELECT pa.*, ep.idAssessment, ep.idPathway
+                                                FROM pathwayAnswers AS pa 
+                                                LEFT JOIN entryPathways AS ep ON pa.idEntryPathway = ep.idEntryPathway
+                                                WHERE pa.idEntryPathway IN ({paste(selected_entries$idEntryPathway, collapse = ', ')})"))
+                                                # WHERE ep.idPathway IN ({paste(names(assessments$entry), collapse = ', ')})"))
     } # end if entry not null
+# print(answers$entry)
     
-    # assessments$data <- dbReadTable(con(), "assessments")
-    answers$main <- dbGetQuery(con(), glue("SELECT * FROM answers WHERE idAssessment = {assessments$selected$idAssessment}"))
-    # answers$entry <- dbGetQuery(con(), glue("SELECT * FROM pathwayAnswers WHERE idEntryPathway IN ({paste(selected_entries$idEntryPathway, collapse = ', ')})"))
-    answers$entry <- dbGetQuery(con(), glue("SELECT pa.*, ep.idAssessment, ep.idPathway
-                                              FROM pathwayAnswers AS pa 
-                                              LEFT JOIN entryPathways AS ep ON pa.idEntryPathway = ep.idEntryPathway
-                                              WHERE pa.idEntryPathway IN ({paste(selected_entries$idEntryPathway, collapse = ', ')})"))
-    
-    save$status <- "Saved ✔️"
-    save$timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+    # save$status <- "Saved ✔️"
+    # save$timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
     
     shinyalert(
       title = "Success",
@@ -1408,6 +1431,7 @@ server <- function(input, output, session) {
       timer = 1000,
     )
     
+    updateTabsetPanel(session, "questionarie_tab", selected = tab_now)
   }, ignoreInit = TRUE)
   
   # Simulations ----
@@ -1581,8 +1605,8 @@ server <- function(input, output, session) {
     datatable(simulations$summary |> 
                 mutate(variable = c("Entry A*", "Entry B**", "Establishment", 
                                     "Invasion A*", "Invasion B**", "Impact",
-                                    "Overall Risk A*", "Overall Risk B**",
-                                    "Preventavility", "Controlability", "Manageability")),
+                                    "Risk A*", "Risk B**",
+                                    "Preventability", "Controllability", "Manageability")),
               rownames = FALSE,
               colnames = c("Variable", "Min", "5th Percentile", "25th Percentile", 
                             "Median", "75th Percentile", "95th Percentile", "Max", "Mean"),
@@ -1595,7 +1619,7 @@ server <- function(input, output, session) {
   ## Save Simulation ----
   observeEvent(input$save_sim, {
     req(simulations$results)
-    save$status <- "Saving"    
+    # save$status <- "Saving"    
     
     res <- dbExecute(conn = con(),
                      "INSERT INTO simulations(idAssessment, iterations, lambda, weight1, weight2, date)
@@ -1633,8 +1657,8 @@ server <- function(input, output, session) {
     
     simulations$data <- dbReadTable(con(), "simulations")
     
-    save$status <- "Saved ✔️"
-    save$timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+    # save$status <- "Saved ✔️"
+    # save$timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
     
     shinyalert(
       title = "Success",
@@ -1644,11 +1668,36 @@ server <- function(input, output, session) {
     )
   })
   
-  # Species ----
+  # Pest ----
   # Show species lists
-  output$pests <- renderTable({
+  output$pests <- renderDT({
     req(pests$data)
-    pests$data
+    tab <- pests$data |> 
+      mutate(inEurope = as.logical(inEurope)) |> 
+      left_join(taxa$data, by = "idTaxa") |>
+      left_join(quaran$data, by = "idQuarantineStatus") |>
+      select(scientificName, eppoCode, gbifTaxonKey, vernacularName, synonyms, name.x, name.y, inEurope)
+
+    datatable(tab, 
+              class = 'row-border stripe compact hover',
+              extensions = 'Buttons', 
+              rownames = FALSE, selection = 'single', autoHideNavigation = FALSE,
+              colnames = c("Pest species", "EPPO code", "GBIF taxon key", "Common names", 
+                           "Synonyms", "Taxonomic Group", "Quarantine Status", "Present in Europe"),
+              options = list(
+                # columnDefs = list(
+                #   list(targets = c(0), visible = FALSE) # hides 1st column 
+                # ),
+                dom = 'lftpB', #pageLength = 6,
+                stateSave = TRUE,
+                # language = list(url = '//cdn.datatables.net/plug-ins/1.10.11/i18n/Swedish.json'),
+                searching = TRUE, autoFill = FALSE, ordering = TRUE,
+                lengthMenu = list(c(10, 25, 50, 100, -1),
+                                  c('10', '25', '50', '100','All')),
+                pageLength = 25,
+                lengthChange = TRUE, scrollX = TRUE, scrollY = FALSE,
+                paging = TRUE)
+    )
   })
 
   ## Modal for new pest ----
@@ -1661,7 +1710,7 @@ server <- function(input, output, session) {
                textInput("new_common", "Common Name"),
                textInput("new_synonyms", "Synonyms"),
                textInput("new_eppo", "EPPO code"),
-               textInput("new_gbifuuid", "GBIF UUID"),
+               textInput("new_gbifTaxonKey", "GBIF taxon key"),
                selectInput("new_taxa", "Taxonomic Group*", choices = setNames(c("", taxa$data$idTaxa), 
                                                                               c("", taxa$data$name))),
                selectInput("new_quaran", "Quarantine Status*", choices = setNames(c("", quaran$data$idQuarantineStatus),
@@ -1701,13 +1750,13 @@ server <- function(input, output, session) {
     # Coalesce empty inputs to NA
     new_common   <- ifelse(input$new_common == "", NA, input$new_common)
     new_eppo     <- ifelse(input$new_eppo == "", NA, input$new_eppo)
-    new_gbif     <- ifelse(input$new_gbifuuid == "", NA, input$new_gbifuuid)
+    new_gbif     <- ifelse(input$new_gbifTaxonKey == "", NA, input$new_gbifTaxonKey)
     new_synonyms <- ifelse(input$new_synonyms == "", NA, input$new_synonyms)
     
     # Check for duplicates
     duplicate_sci  <- tolower(input$new_sci) %in% tolower(pests$data$scientificName)
     duplicate_eppo <- (input$new_eppo != "" && input$new_eppo %in% pests$data$eppoCode)
-    duplicate_gbif <- (input$new_gbifuuid != "" && input$new_gbifuuid %in% pests$data$gbifuuid)
+    duplicate_gbif <- (input$new_gbifTaxonKey != "" && input$new_gbifTaxonKey %in% pests$data$gbifTaxonKey)
     
     if (duplicate_eppo || duplicate_gbif || duplicate_sci) {
       shinyalert(
@@ -1715,7 +1764,7 @@ server <- function(input, output, session) {
         text = paste(
           if (duplicate_sci) "Scientific name already exists." else NULL,
           if (duplicate_eppo) "EPPO code already exists." else NULL,
-          if (duplicate_gbif) "GBIF UUID already exists." else NULL,
+          if (duplicate_gbif) "GBIF taxon key already exists." else NULL,
           sep = "\n"
         ),
         type = "error"
@@ -1725,11 +1774,11 @@ server <- function(input, output, session) {
     
     # Insert into pests table
     res <- dbExecute(conn = con(),
-                     "INSERT INTO pests(scientificName, vernacularName, eppoCode, gbifuuid,
+                     "INSERT INTO pests(scientificName, vernacularName, eppoCode, gbifTaxonKey,
                                         synonyms, idTaxa, idQuarantineStatus, inEurope)
                         VALUES(?,?,?,?,?,?,?,?)
                         RETURNING idPest;",
-                     params = list(input$new_sci, input$new_common, input$new_eppo, input$new_gbifuuid,
+                     params = list(input$new_sci, input$new_common, input$new_eppo, input$new_gbifTaxonKey,
                                    input$new_synonyms, input$new_taxa, input$new_quaran, as.integer(input$new_ineu)))
     
     pests$data <- dbReadTable(con(), "pests")
@@ -1771,7 +1820,7 @@ server <- function(input, output, session) {
   observeEvent(input$confirm_assessor, {
     dbExecute(con(), "INSERT INTO assessors(firstName, lastName, email) VALUES(?,?,?)",
               params = list(input$new_name, input$new_last, input$new_email))
-    assessors$data <- dbReadTable(con(), "users")
+    assessors$data <- dbReadTable(con(), "assessors")
     assessors$data$label <- paste(assessors$data$firstName, assessors$data$lastName)
     removeModal()
     # update_dropdowns()

@@ -1,4 +1,3 @@
-# production <- FALSE
 library(shiny)
 library(shinyjs)
 library(shinyFiles)
@@ -13,12 +12,11 @@ library(tidyverse)
 library(glue)
 library(jsonlite)
 
-library(mc2d) # for monte carlo simulations
+# For monte carlo simulations
+library(mc2d) 
 
-### For .docx reports
+# For .docx reports
 library(officer)
-# library(crosstable)
-# options(crosstable_style_list_unordered="unordered_list")
 library(flextable)
 
 ## Set options

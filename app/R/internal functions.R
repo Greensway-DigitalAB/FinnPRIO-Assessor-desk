@@ -382,9 +382,9 @@ get_inputs_path_as_df <- function(answers, input){ ## , points_path
     }
   }
 
-  input_names_just <- names(input)[grepl("^justEnt", names(input))]
+  input_names_just <- names(input)[grepl("^justENT", names(input))]
   # Remove justifications for ENT1 as they are not collected
-  input_names_just <- input_names_just[-grep("Ent1",input_names_just)]  
+  input_names_just <- input_names_just[-grep("ENT1",input_names_just)]  
   respJust <- sapply(input_names_just, function(i) input[[i]])
   
   # Create a full justification dataframe
@@ -575,6 +575,11 @@ report_assessment <- function(connection, assessments_selected, questions_main, 
                                      WHERE idQuarantineStatus = {as.integer(assessments_selected$idQuarantineStatus)}"))
   taxa <- dbGetQuery(connection, glue("SELECT name FROM taxonomicGroups
                                      WHERE idTaxa = {as.integer(assessments_selected$idTaxa)}"))
+  threatsXassessment <- dbGetQuery(connection, glue("SELECT name 
+                                              FROM threatXassessment
+                                              LEFT JOIN threatenedSectors
+                                                  ON threatXassessment.idThrSect = threatenedSectors.idThrSect
+                                              WHERE idAssessment = {assessments_selected$idAssessment}"))
 
   ids_ent <- as.integer(names(assessments_entry)) |> unique() |> na.omit()
   entries <- dbGetQuery(connection, glue_sql("SELECT idPathway, name FROM pathways WHERE idPathway IN ({ids*})", 
@@ -625,13 +630,18 @@ report_assessment <- function(connection, assessments_selected, questions_main, 
     ) |>
     body_add_par("") |>
     body_add_fpar(
+      fpar( ftext("Notes: ", fp_text_lite(bold = TRUE)),
+            assessments_selected$notes)
+    ) |>  
+    body_add_par("") |>
+    body_add_fpar(
       fpar( ftext("Host plants: ", fp_text_lite(bold = TRUE)),
             assessments_selected$hosts)
     ) |> 
     body_add_par("") |>
     body_add_fpar(
       fpar( ftext("Threathened sectors: ", fp_text_lite(bold = TRUE)),
-            assessments_selected$hosts)
+            paste0(threatsXassessment$name, collapse = ", "))
     ) |>
     body_add_par("") |>
     body_add_fpar(
@@ -641,16 +651,11 @@ report_assessment <- function(connection, assessments_selected, questions_main, 
     body_add_fpar(
       fpar( ftext(assessments_selected$potentialEntryPathways) )
     ) |>
-    body_add_par("") |>
-    body_add_fpar(
-      fpar( ftext("Notes: ", fp_text_lite(bold = TRUE)),
-            assessments_selected$notes)
-    ) |>  
     body_add_break() |> 
     body_add_par("Assessments", style = "heading 2") |>
     body_add_par("")
     # body_add_fpar(intro_text) |> 
-  
+
   ## entry
   doc <- body_add_par(doc, "Entry", style = "heading 3")
   doc <- add_answers_to_report(doc, "ENT", questions_main, answers_main, answers_logical)
@@ -709,7 +714,8 @@ add_answers_to_report <- function(doc, tag, questions_main, answers_main, answer
     # info <- answers_logical$info[x]
     just <- answers_main |> 
       filter(idQuestion == quest$idQuestion[x]) |> 
-      pull(justification)
+      pull(justification) #|> 
+      # strsplit(txt, "\\r\\n")[[1]]
     opt <- fromJSON(options)$opt
     text <- fromJSON(options)$text
     answers_quest <- answers_logical |> 
@@ -762,15 +768,20 @@ add_answers_to_report <- function(doc, tag, questions_main, answers_main, answer
       # body_add_par(paste0("ENT", id, ": ", question), style = "heading 3") |> 
       body_add_fpar(
         fpar(
-          ftext(paste0(q_tag, ": "), prop = fp_text(bold = TRUE)),
-          ftext(question, prop = fp_text())
+          ftext(paste0(q_tag, ": "), prop = fp_text(bold = TRUE, font.size = 12)),
+          ftext(question, prop = fp_text(font.size = 12))
         )) |> 
       body_add_flextable(
         flextable(answers_quest,
-                  cwidth = 1.5)
+                  cwidth = 1.5) |> 
+          align(j = c("Minimum", "Likely", "Maximum"), 
+                align = "center", part = "body")
       ) |>
       # body_add_list(options, ordered = FALSE) |> 
-      body_add_par(paste0("Justification: ", just), style = "Normal")
+      body_add_par(paste0("Justification: ", just), style = "Normal") |> 
+      # body_add_par(paste0("Justification: "), style = "Normal") |> 
+      # body_add_fpar(fpar(lapply(just, ftext))) |> 
+      body_add_par("")
   } 
   
   # doc <- doc |> body_add_break()
@@ -828,18 +839,32 @@ add_answers_path_to_report <- function(doc, tag, questions_entry,
       # body_add_par(paste0("ENT", id, ": ", question), style = "heading 3") |> 
       body_add_fpar(
         fpar(
-          ftext(paste0(tag, id, ": "), prop = fp_text(bold = TRUE)),
-          ftext(question, prop = fp_text())
+          ftext(paste0(tag, id, ": "), prop = fp_text(bold = TRUE, font.size = 12)),
+          ftext(question, prop = fp_text(font.size = 12))
         )) |> 
       body_add_flextable(
         flextable(answers_quest,
-                  cwidth = 1.5)
+                  cwidth = 1.5) |> 
+          align(j = c("Minimum", "Likely", "Maximum"), 
+                align = "center", part = "body")
       ) |>
       # body_add_list(options, ordered = FALSE) |> 
-      body_add_par(paste0("Justification: ", just), style = "Normal")
+      body_add_par(paste0("Justification: ", just), style = "Normal") |> 
+      body_add_par("")
   } 
   
   # doc <- doc |> body_add_break()
   
   return(doc)
+}
+
+
+## Remove all inputs for a given prefix
+remove_inputs_by_prefix <- function(input, prefix, session) {
+  input_names <- names(input)
+  # to_remove <- input_names[grepl(paste0("^", prefix), input_names)]
+  to_remove <- input_names[grepl(prefix, input_names)]
+  for (name in to_remove) {
+    removeUI(glue("div:has(> #{name}"), immediate = TRUE, session = session)
+  }
 }

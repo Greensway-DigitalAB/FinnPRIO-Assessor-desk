@@ -1,5 +1,5 @@
 #define MyAppName "FinnPRIO Assessor"
-#define MyAppVersion "0.9"
+#define MyAppVersion "1.0.0"
 #define MyAppPublisher "Greensway Digital AB"
 #define MyAppURL "https://greensway.se/digital-plattform/"
 #define MyAppExeName "FinnPRIO.bat"
@@ -16,6 +16,7 @@ AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={pf}\{#MyAppName}
+;DefaultDirName={localappdata}\{#MyAppName}
 DisableDirPage=yes
 DefaultGroupName={#MyAppName}
 ArchitecturesInstallIn64BitMode=x64
@@ -35,7 +36,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "*"; DestDir: "{app}"; Excludes: "finnpriosetup.exe, setup.iss, .git*"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "*"; DestDir: "{app}"; Excludes: "'.exe, setup.iss, .git*"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
