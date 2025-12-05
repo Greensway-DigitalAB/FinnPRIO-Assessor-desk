@@ -22,16 +22,6 @@ navbarPage("FinnPRIO-Assessor",
                                                                  style = "color:black; font-size: 12px;"),
                                                        class = "bubble"),
                                                        value = FALSE)
-                                     # h3(strong("Filters"), style = "color:#7C6A56"),
-                                     # selectInput("filter_pest", "Select Pest Species", 
-                                     #             choices = NULL),
-                                     # selectInput("filter_assessor", "Select User", 
-                                     #             choices = NULL),
-                                     # checkboxGroupInput("filter_entry_path",
-                                     #                    label = "Select entry pathways",
-                                     #                    choices = NULL,
-                                     #                    inline = FALSE),
-                                     # br(),
                                   )
                                 )
                               ), 
@@ -49,13 +39,6 @@ navbarPage("FinnPRIO-Assessor",
                                        }")
                                    ),
                                    actionButton("save_answers", "Save Answers") #,
-                                   # Autosave status text
-                                   # tags$div(
-                                   #   style = "margin-left: 20px;",
-                                   #   strong("Autosave Status: "),
-                                   #   textOutput("save_status", inline = TRUE)
-                                   # )
-                                   
                                  ),
                                  uiOutput("questionarie")
                         )
@@ -97,6 +80,5 @@ navbarPage("FinnPRIO-Assessor",
                uiOutput("unload_db_ui")
               )
              ),
-           # position = "fixed-top",
            theme = shinythemes::shinytheme("sandstone")
 )

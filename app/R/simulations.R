@@ -40,8 +40,6 @@ generate_inclusion_exclusion_score <- function(score_matrix) {
     }
   }
   
-# print(result)  
-  
   return(result)
 }
 
@@ -122,13 +120,10 @@ simulation <- function(answers, answers_entry,
     )
     
   } # end for pathways
-# print(dim(scorePathway))
-  
+
   ENTRYA <- generate_inclusion_exclusion_score(scorePathway[,,"A"])
-  # ENTRYA <- scorePathway[,1,"A"]+scorePathway[,2,"A"] - scorePathway[,1,"A"]*scorePathway[,2,"A"]
   ENTRYB <- generate_inclusion_exclusion_score(scorePathway[,,"B"])
-  # ENTRYB<-ScorePathway1B+ScorePathway2B+ScorePathway3B+ScorePathway4B+ScorePathway5B-ScorePathway1B*ScorePathway2B-ScorePathway1B*ScorePathway3B-ScorePathway1B*ScorePathway4B-ScorePathway1B*ScorePathway5B-ScorePathway2B*ScorePathway3B-ScorePathway2B*ScorePathway4B-ScorePathway2B*ScorePathway5B-ScorePathway3B*ScorePathway4B-ScorePathway3B*ScorePathway5B-ScorePathway4B*ScorePathway5B+ScorePathway1B*ScorePathway2B*ScorePathway3B+ScorePathway1B*ScorePathway2B*ScorePathway4B+ScorePathway1B*ScorePathway2B*ScorePathway5B+ScorePathway1B*ScorePathway3B*ScorePathway4B+ScorePathway1B*ScorePathway3B*ScorePathway5B+ScorePathway1B*ScorePathway4B*ScorePathway5B+ScorePathway2B*ScorePathway3B*ScorePathway4B+ScorePathway2B*ScorePathway3B*ScorePathway5B+ScorePathway2B*ScorePathway4B*ScorePathway5B+ScorePathway3B*ScorePathway4B*ScorePathway5B-ScorePathway1B*ScorePathway2B*ScorePathway3B*ScorePathway4B-ScorePathway1B*ScorePathway2B*ScorePathway3B*ScorePathway5B-ScorePathway1B*ScorePathway2B*ScorePathway4B*ScorePathway5B-ScorePathway1B*ScorePathway3B*ScorePathway4B*ScorePathway5B-ScorePathway2B*ScorePathway3B*ScorePathway4B*ScorePathway5B+ScorePathway1B*ScorePathway2B*ScorePathway3B*ScorePathway4B*ScorePathway5B
-  
+
   EST1 <- rpert_from_tag(answers, tag = "EST1")
   EST2 <- rpert_from_tag(answers, tag = "EST2")
   EST3 <- rpert_from_tag(answers, tag = "EST3")

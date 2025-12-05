@@ -62,7 +62,6 @@ render_quest_tab <- function(tag, qid, question,
     
     table_data[i, ] = sprintf(
       '<input type="checkbox" name="%s" value="%s" %s/>', # the last s if for adding 'checked'
-      # '<input type="checkbox" name="%s" value="%s" checked="checked"/>', #the last s if for adding 'checked'
       input_names[i], table_data[i, ], ifelse(is_checked, ' checked="checked"', ""))
   }
   
@@ -114,7 +113,6 @@ render_quest_tab <- function(tag, qid, question,
   }
   
   tagList(
-    # h4(glue("{tag} {qid}: {question}")),
     datatable(
       cbind(texts, table_data), #table_data,
       colnames = colnames,
@@ -146,7 +144,7 @@ render_severity_warning <- function(groupTag, answers) {
     filter(question == groupTag) |> 
     select(minimum, likely, maximum) |> 
     unlist()
-# print(focal_ans)
+  
   renderUI({
     req(focal_ans)
     # Ensure names are "min", "likely", "max"
@@ -234,10 +232,8 @@ extract_answers <- function(questions, groupTag, input){
 extract_answers_entry <- function(questions, groupTag, path, input){
   quesExt <- questions |> filter(group == groupTag)
   id <- quesExt$number
-  # id <- paste0(quesExt$number, "_", rep(path, length(quesExt$number)))
   input_names <- character(0)
   for (i in seq(id)) {
-    # options <- fromJSON(quesExt$list[i])$text
     options <- fromJSON(quesExt$list[i])$opt
     id_p <- paste0(id[i], "_", path)
     for (p in id_p) {
@@ -490,8 +486,7 @@ check_minmax_completeness <- function(df, all = FALSE) {
   }
   # Check for missing values in min, likely, or max
   incomplete <- minmax_rows[is.na(minmax_rows$min) | is.na(minmax_rows$likely) | is.na(minmax_rows$max), ]
-# print(incomplete)  
-  
+
   # Return result
   if (nrow(incomplete) == 0) {
     # message("✅ All 'minmax' rows are complete.")
@@ -545,7 +540,6 @@ export_wide_table <- function(connection, only_one = TRUE) {
                 names_glue = "{.value}_PW{PW_count}")
 
   # Make Simulations wide
-# simulationsExp <<- simulations
   simulations <- dbGetQuery(connection, simulations_sql) |> 
     select(-idSimulation) |> 
     mutate(date = as.Date(date)) |>
@@ -711,11 +705,10 @@ add_answers_to_report <- function(doc, tag, questions_main, answers_main, answer
     options <- quest$list[x]
     id <- quest$number[x]
     q_tag <- paste0(tag, quest$number[x])
-    # info <- answers_logical$info[x]
     just <- answers_main |> 
       filter(idQuestion == quest$idQuestion[x]) |> 
-      pull(justification) #|> 
-      # strsplit(txt, "\\r\\n")[[1]]
+      pull(justification) 
+
     opt <- fromJSON(options)$opt
     text <- fromJSON(options)$text
     answers_quest <- answers_logical |> 
@@ -737,8 +730,6 @@ add_answers_to_report <- function(doc, tag, questions_main, answers_main, answer
         arrange(option)
     }
     
-# print(answers_quest)
-    
     if (quest$type[x] == "minmax") {
       answers_quest <- answers_quest |> 
         mutate(Option = paste0(opt,": ", text),
@@ -758,14 +749,10 @@ add_answers_to_report <- function(doc, tag, questions_main, answers_main, answer
                Maximum = ifelse(!is.na(Maximum), 
                                 ifelse(Maximum, "YES", "NO"), 
                                 "NO")) |>
-               # Minimum = ifelse(Minimum, "YES", "NO"),
-               # Likely = ifelse(Likely, "YES", "NO"),
-               # Maximum = ifelse(Maximum, "YES", "NO")) |>
         select(Option, Minimum, Likely, Maximum)
     }
 
     doc <- doc |> 
-      # body_add_par(paste0("ENT", id, ": ", question), style = "heading 3") |> 
       body_add_fpar(
         fpar(
           ftext(paste0(q_tag, ": "), prop = fp_text(bold = TRUE, font.size = 12)),
@@ -777,21 +764,15 @@ add_answers_to_report <- function(doc, tag, questions_main, answers_main, answer
           align(j = c("Minimum", "Likely", "Maximum"), 
                 align = "center", part = "body")
       ) |>
-      # body_add_list(options, ordered = FALSE) |> 
       body_add_par(paste0("Justification: ", just), style = "Normal") |> 
-      # body_add_par(paste0("Justification: "), style = "Normal") |> 
-      # body_add_fpar(fpar(lapply(just, ftext))) |> 
       body_add_par("")
   } 
-  
-  # doc <- doc |> body_add_break()
-  
+
   return(doc)
 }
 
 add_answers_path_to_report <- function(doc, tag, questions_entry, 
                                        answers_entry, answers_logical) {
-# print(questions_entry)
   quest <- questions_entry |> 
     filter(group == tag) |> 
     arrange(number)
@@ -827,7 +808,6 @@ add_answers_path_to_report <- function(doc, tag, questions_entry,
         arrange(option)
     }
     
-    # print(answers_quest)
     answers_quest <- answers_quest |> 
       mutate(Option = paste0(opt,": ", text),
              Minimum = ifelse(Minimum, "X", ""),
@@ -836,7 +816,6 @@ add_answers_path_to_report <- function(doc, tag, questions_entry,
       select(Option, Minimum, Likely, Maximum)  
     
     doc <- doc |> 
-      # body_add_par(paste0("ENT", id, ": ", question), style = "heading 3") |> 
       body_add_fpar(
         fpar(
           ftext(paste0(tag, id, ": "), prop = fp_text(bold = TRUE, font.size = 12)),
@@ -848,12 +827,9 @@ add_answers_path_to_report <- function(doc, tag, questions_entry,
           align(j = c("Minimum", "Likely", "Maximum"), 
                 align = "center", part = "body")
       ) |>
-      # body_add_list(options, ordered = FALSE) |> 
       body_add_par(paste0("Justification: ", just), style = "Normal") |> 
       body_add_par("")
   } 
-  
-  # doc <- doc |> body_add_break()
   
   return(doc)
 }
@@ -862,7 +838,6 @@ add_answers_path_to_report <- function(doc, tag, questions_entry,
 ## Remove all inputs for a given prefix
 remove_inputs_by_prefix <- function(input, prefix, session) {
   input_names <- names(input)
-  # to_remove <- input_names[grepl(paste0("^", prefix), input_names)]
   to_remove <- input_names[grepl(prefix, input_names)]
   for (name in to_remove) {
     removeUI(glue("div:has(> #{name}"), immediate = TRUE, session = session)

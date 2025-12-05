@@ -1,8 +1,7 @@
 server <- function(input, output, session) {
   # Reactive values ####
   load <- reactiveValues(status = FALSE, timestamp = NULL)
-  # save <- reactiveValues(status = "Idle", timestamp = NULL)
-  
+
   con <- reactiveVal()
   assessors <- reactiveValues(data = NULL)
   threats <- reactiveValues(data = NULL)
@@ -28,7 +27,8 @@ server <- function(input, output, session) {
   db_path <- reactiveVal(NULL)
   db_file <- reactiveVal(NULL)
   
-  # ---- Database connection ----
+  ## In case you want to Uppload a file instead
+  # ---- Database connection ---- 
   # output$file_path_ui <- renderUI({
   #   if (load$status == FALSE){
   #     tagList(
@@ -53,13 +53,10 @@ server <- function(input, output, session) {
                          multiple = FALSE, style = "margin-top: 20px;")
       )
     } else {
-        # print(input$db_file$files)
       l_path <- length(input$db_file$files$`0`)
       tagList(
-        # h3("Working with", db_path(), load$timestamp)#,
         h3("Working with", input$db_file$files$`0`[[l_path]]),
         h5(db_path())#,
-        # actionButton("unload_db", "Unload database")
       )
     }
   })
@@ -73,19 +70,16 @@ server <- function(input, output, session) {
   observeEvent(input$unload_db, {
     dbDisconnect(con())
     runjs("document.getElementById('db_file').value = ''")
-    # con(NULL)
     assessments$data <- NULL
     assessments$selected <- NULL
     assessments$entry <- NULL
     assessments$threats <- NULL
-    # assessments$questionarie <- NULL
     assessments$selected <- NULL
     answers$main <- NULL
     answers$entry <- NULL
     load$status <- FALSE
     load$timestamp <- NULL
     updateTabsetPanel(session, "all_assessments", selected = "1")
-    # session$reload()
   })
   
   
@@ -101,8 +95,6 @@ server <- function(input, output, session) {
     
     file_path <- parseFilePaths(volumes, input$db_file)$datapath
   
-  # print(input$db_file$files$`0`[[3]])
-    
     if (length(file_path) > 0 && file.exists(file_path)) {
       db_path(file_path)
     } else {
@@ -128,25 +120,19 @@ server <- function(input, output, session) {
   
   # Load data from database ####
   observeEvent(db_path(), {
-    # req(input$db_file)
     req(db_path())
     load$status <- TRUE
     load$timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-    # save$status <- "Saved ✔️"
-    # print(db_path())
-    
+
     withProgress({
       setProgress(.1)
       consql <- dbConnect(RSQLite::SQLite(), db_path())
       # consql <- dbConnect(RSQLite::SQLite(), dbname = input$db_file$datapath)
-                          # dbname = ifelse(production,
-                          #                 'data/FinnPrio_DB_v01.db',
-                          #                 'data/FinnPrio_DB_v01_test.db'))
-      # consqlGlobal <<- consql
       con(consql)
       if (!is.null(con())) {
         message("Connection established")
         message("You are in Neo")
+        setProgress(.3)
         assessors$data <- dbReadTable(con(), "assessors")
         assessors$data$fullName <- paste(assessors$data$firstName, assessors$data$lastName)
         threats$data <- dbReadTable(con(), "threatenedSectors")
@@ -154,7 +140,7 @@ server <- function(input, output, session) {
         taxa$data <- dbReadTable(con(), "taxonomicGroups")
         quaran$data <- dbReadTable(con(), "quarantineStatus")
         pathways$data <- dbReadTable(con(), "pathways")
-        
+        setProgress(.5)
         assessments$data <- dbReadTable(con(), "assessments")
         simulations$data <- dbReadTable(con(), "simulations")
         questions$main <- dbReadTable(con(), "questions")
@@ -224,6 +210,59 @@ server <- function(input, output, session) {
   proxyassessments <- dataTableProxy("assessments")
   
   
+  ## Modal for new assessment ----
+  observeEvent(input$new_ass, {
+    assessments$selected <- NULL
+    assessments$entry <- NULL
+    answers$main <- NULL
+    answers$entry <- NULL
+    proxyassessments |> selectRows(NULL)  
+    
+    req(pests$data)
+    req(assessors$data)
+    req(pathways$data)
+    showModal(modalDialog(
+      title = "Add New Assessment",
+      selectInput("pest", "Pest Species", 
+                  choices = setNames(c("", pests$data$idPest), c("", pests$data$scientificName))),
+      selectInput("assessor", "Assessor", 
+                  choices = setNames(c("", assessors$data$idAssessor), c("", assessors$data$fullName))),
+      # Entry pathways 
+      h4(strong("Entry Pathways"), style = "color:#7C6A56"),
+      textAreaInput("pot_entry_path_text",
+                    label = "Potential entry pathways",
+                    resize = "vertical"),
+      checkboxGroupInput("pot_entry_path",
+                         label = "Select potential entry pathways to assess",
+                         choices = setNames(pathways$data$idPathway, pathways$data$name),
+                         inline = FALSE),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("confirm_ass", "Save")
+      ),
+      size = "s",
+      easyClose = TRUE
+    ))
+  })
+  
+  observeEvent(input$confirm_ass, {
+    dbExecute(con(), "INSERT INTO assessments(idPest, idAssessor, potentialEntryPathways, startDate, endDate) VALUES(?,?,?,?,?)",
+              params = list(input$pest, input$assessor, input$pot_entry_path_text, 
+                            as.character(today("CET")), format(now("CET"), "%Y-%m-%d %H:%M:%S")  ))
+    assessments$data <- dbReadTable(con(), "assessments")
+    id_new_ass <- last(assessments$data$idAssessment) ## Alternatively highest if they return disordered
+    
+    if (length(input$pot_entry_path) > 0) {
+      for (p in input$pot_entry_path) {
+        dbExecute(con(), "INSERT INTO entryPathways(idAssessment, idPathway) VALUES(?,?)",
+                  params = list(id_new_ass, p))
+      }
+    }
+    # assessments$entry <- dbReadTable(con(), "entryPathways")
+    removeModal()
+    update_options(assessors$data, pests$data, taxa$data, quaran$data, pathways$data, session)
+  })
+  
   ## Export wide table ----
   output$export_wide <- downloadHandler(
     filename = function() { "wide_table.csv" },
@@ -237,11 +276,6 @@ server <- function(input, output, session) {
   
   ## Select assessment ----
   observeEvent(input$assessments_rows_selected, {
-    ## clear all input fields
-    # remove_inputs_by_prefix(input, "ENT", session)
-    # remove_inputs_by_prefix(input, "EST", session)
-    # remove_inputs_by_prefix(input, "MAN", session)
-    # remove_inputs_by_prefix(input, "IMP", session)
     frominput$main <- NULL
     frominput$entry <- NULL
     
@@ -252,10 +286,8 @@ server <- function(input, output, session) {
       assessments$threats <- NULL
       answers$main <- NULL
       answers$entry <- NULL
-      # updateTabsetPanel(session, "all_assessments", selected = "all")
-      # removeUI("questionarie_tab", immediate = TRUE, multiple = TRUE)
     } else {
-      ## TODO watch here the selection process based on the filter options
+      ## OBS! watch here the selection process based on the filter options
       assessments$selected <- assessments$data[input$assessments_rows_selected, ]
       
       assessments$selected <- assessments$selected |> 
@@ -283,8 +315,7 @@ server <- function(input, output, session) {
                                               FROM pathwayAnswers AS pa 
                                               LEFT JOIN entryPathways AS ep ON pa.idEntryPathway = ep.idEntryPathway
                                               WHERE pa.idEntryPathway IN ({paste(selected_entries$idEntryPathway, collapse = ', ')})"))
-                                              #WHERE ep.idPathway IN ({paste(selected_entries$idPathway, collapse = ', ')})"))
-      
+
       updateTabsetPanel(session, "all_assessments", selected = "sel")
         
     }
@@ -293,12 +324,6 @@ server <- function(input, output, session) {
   
   ## Assessments summary ----
   output$selectedAssName <- renderUI({
-    # if (is.null(input$assessments_rows_selected)) {
-    #   tagList(icon("file", class = "fas"), "Selected Assessment")
-    # } else {
-    #   tagList(icon("file-lines", class = "fas"), assessments$selected$label)
-    # }
-    # res <- tagList(icon("file", class = "fas"), "Selected Assessment")
     if (!is.null(input$assessments_rows_selected)) {
       res <- tagList(icon("file-lines", class = "fas"), assessments$selected$label)
     } else {
@@ -353,10 +378,7 @@ server <- function(input, output, session) {
                              value = ifelse(is.na(ass_info$notes), "", ass_info$notes),
                              width = "auto", height = "500px", resize = "vertical")
                )
-      )#,
-      # tags$div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
-      # ),
-      # br()
+      )
     )
     
   })
@@ -482,57 +504,6 @@ server <- function(input, output, session) {
     return (ui)
   })
   
-  ## Modal for new assessment ----
-  observeEvent(input$new_ass, {
-    assessments$selected <- NULL
-    assessments$entry <- NULL
-    answers$main <- NULL
-    answers$entry <- NULL
-    req(pests$data)
-    req(assessors$data)
-    req(pathways$data)
-    showModal(modalDialog(
-      title = "Add New Assessment",
-      selectInput("pest", "Pest Species", 
-                  choices = setNames(c("", pests$data$idPest), c("", pests$data$scientificName))),
-      selectInput("assessor", "Assessor", 
-                  choices = setNames(c("", assessors$data$idAssessor), c("", assessors$data$fullName))),
-      # Entry pathways 
-      h4(strong("Entry Pathways"), style = "color:#7C6A56"),
-      textAreaInput("pot_entry_path_text",
-                    label = "Potential entry pathways",
-                    resize = "vertical"),
-      checkboxGroupInput("pot_entry_path",
-                         label = "Select potential entry pathways to assess",
-                         choices = setNames(pathways$data$idPathway, pathways$data$name),
-                         inline = FALSE),
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("confirm_ass", "Save")
-      ),
-      size = "s",
-      easyClose = TRUE
-    ))
-  })
-  
-  observeEvent(input$confirm_ass, {
-    dbExecute(con(), "INSERT INTO assessments(idPest, idAssessor, potentialEntryPathways, startDate, endDate) VALUES(?,?,?,?,?)",
-              params = list(input$pest, input$assessor, input$pot_entry_path_text, 
-                            as.character(today("CET")), format(now("CET"), "%Y-%m-%d %H:%M:%S")  ))
-    assessments$data <- dbReadTable(con(), "assessments")
-    id_new_ass <- last(assessments$data$idAssessment) ## Alternatively highest if they return disordered
-    
-    if (length(input$pot_entry_path) > 0) {
-      for (p in input$pot_entry_path) {
-        dbExecute(con(), "INSERT INTO entryPathways(idAssessment, idPathway) VALUES(?,?)",
-                  params = list(id_new_ass, p))
-      }
-    }
-    # assessments$entry <- dbReadTable(con(), "entryPathways")
-    removeModal()
-    update_options(assessors$data, pests$data, taxa$data, quaran$data, pathways$data, session)
-  })
-
   ## Questionaries ----
   output$questionarie <- renderUI({
     req(questions$main)
@@ -562,7 +533,6 @@ server <- function(input, output, session) {
                           just <- answers$main |> 
                             filter(idQuestion == quesEnt$idQuestion[x]) |> 
                             pull(justification)
-                          # print(answers$main |> filter(idQuestion == quesEnt$idQuestion[x]))
                           tagList(
                             div(style = "display: flex; align-items: center; gap: 8px;",
                               h4(glue("ENT {id}: {question}")),
@@ -794,7 +764,7 @@ server <- function(input, output, session) {
     answ_man <- extract_answers(questions$main, groupTag = "MAN", input)
     answ_all <- c(answ_ent, answ_est, answ_imp, answ_man)
 
-    frominput$main <- get_inputs_as_df(answ_all, input) #, points$main
+    frominput$main <- get_inputs_as_df(answ_all, input) 
     
   })
   
@@ -832,10 +802,6 @@ server <- function(input, output, session) {
                                      style = "color:black; font-size: 12px;"),
                            class = "bubble")
                     ),
-                    # h4(glue("ENT 2A: {questions$entry$question[1]}"), 
-                    #   tags$span(HTML(questions$entry$info[1]), 
-                    #             style = "color:black; font-size: 12px;"), 
-                    #   class = "bubble"),
                    render_quest_tab("ENT", paste0(questions$entry$number[1],"_", 
                                                   rep(x, length(questions$entry$number[1]))),
                                     questions$entry$question[1], 
@@ -851,7 +817,6 @@ server <- function(input, output, session) {
                                  width = 'auto',
                                  height = '150px',
                                  resize = "vertical"),
-                   # ),
                    hr(style = "border-color: gray;"),
                    div(style = "display: flex; align-items: center; gap: 8px;",
                        h4(glue("ENT 2b: {questions$entry$question[2]}")),
@@ -860,10 +825,6 @@ server <- function(input, output, session) {
                                     style = "color:black; font-size: 12px;"),
                           class = "bubble")
                    ),
-                   # h4(glue("ENT 2B: {questions$entry$question[2]}"), 
-                   #    tags$span(HTML(questions$entry$info[2]), 
-                   #              style = "color:black; font-size: 12px;"), 
-                   #    class = "bubble"),
                     render_quest_tab("ENT", paste0(questions$entry$number[2],"_", 
                                                    rep(x, length(questions$entry$number[2]))),
                                      questions$entry$question[2], 
@@ -887,10 +848,6 @@ server <- function(input, output, session) {
                                     style = "color:black; font-size: 12px;"),
                           class = "bubble")
                    ),
-                   # h4(glue("ENT 3: {questions$entry$question[3]}"), 
-                   #    tags$span(HTML(questions$entry$info[3]), 
-                   #              style = "color:black; font-size: 12px;"), 
-                   #    class = "bubble"),
                     render_quest_tab("ENT", paste0(questions$entry$number[3],"_", 
                                                    rep(x, length(questions$entry$number[3]))),
                                      questions$entry$question[3],
@@ -914,10 +871,6 @@ server <- function(input, output, session) {
                                     style = "color:black; font-size: 12px;"),
                           class = "bubble")
                    ),
-                   # h4(glue("ENT 4: {questions$entry$question[4]}"), 
-                   #    tags$span(HTML(questions$entry$info[4]),
-                   #              style = "color:black; font-size: 12px;"),
-                   #    class = "bubble"),
                     render_quest_tab("ENT", paste0(questions$entry$number[4],"_", 
                                                    rep(x, length(questions$entry$number[4]))),
                                      questions$entry$question[4], 
@@ -944,8 +897,6 @@ server <- function(input, output, session) {
   
   ### Observe inputs for Entries ----
   observe({
-    # req(assessments$entry)
-    
     if (!is.null(assessments$entry)) {
       answ_ent_path <- extract_answers_entry(questions$entry, groupTag = "ENT", 
                                              path = names(assessments$entry), 
@@ -957,11 +908,9 @@ server <- function(input, output, session) {
         frominput$entry <- get_inputs_path_as_df(answ_ent_path, input) 
       } else {
         frominput$entry <- NULL
-        # remove_inputs_by_prefix(input, "ENT", session)
       }
     } else {
       frominput$entry <- NULL
-      # remove_inputs_by_prefix(input, "ENT", session)
     }
   })
   
@@ -994,26 +943,6 @@ server <- function(input, output, session) {
   })
   
 # Save Assessment ----
-  # # Autosave every 30 seconds
-  # auto_timer <- reactiveTimer(30000, session)
-  # observe({
-  #   auto_timer()
-  #   # req(assessments$selected)
-  #   # req(frominput$§main)
-  #   
-  #   if (isolate(save$status) != "Saved ✔️") {
-  #     # save$status <- "Autosaving..."
-  #     click("save")
-  #   } #else {
-  #   #   save$status <- "Up to date ✅"
-  #   # }
-  # })
-  # 
-  # # Display save status
-  # output$save_status <- renderText({
-  #   save$status
-  # })
-  
   ## Mark as finished and valid ----
   observeEvent(input$ass_finish, {
     req(answers$main)
@@ -1087,14 +1016,11 @@ server <- function(input, output, session) {
                               format(now("CET"), "%Y-%m-%d %H:%M:%S"), 
                               assessments$selected$idAssessment))
       
-      # save$status <- "Pending"
-      
     } else {
       updateCheckboxInput(session, "ass_valid", value = FALSE)
       dbExecute(con(), "UPDATE assessments SET finished = ?, valid = ? WHERE idAssessment = ?",
                 params = list(0, 0,
                               assessments$selected$idAssessment))
-      # save$status <- "Pending"
     }
     
     # reload the assessments data
@@ -1118,7 +1044,7 @@ server <- function(input, output, session) {
                  idPest == assessments$selected$idPest,
                  valid == 1)
         if(nrow(others) > 0) {
-    ## is there another assessment for the species also valid?
+        ## is there another assessment for the species also valid?
           shinyalert(
             title = "There are other assessment marked as valid",
             text = "For this species, there is another assessment marked as valid. \n Would you lke to make this the valid one?",
@@ -1152,13 +1078,7 @@ server <- function(input, output, session) {
                                paste(firstName, lastName), startDate, 
                                sep = "_"))
         
-        # save$status <- "Pending"
       } else {
-        # shinyalert(
-        #   title = "The assessment is not finished",
-        #   text = "Please complete the questionaire and mark it as finished before selecting it as valid.",
-        #   type = "warning"
-        # )
         updateCheckboxInput(session, "ass_valid", value = FALSE)
       }
     } # if not set to true, dont bother
@@ -1169,7 +1089,7 @@ server <- function(input, output, session) {
     
     req(assessments$selected)
     req(assessments$threats)
-    tab_now <- input$questionarie
+    tab_now <- input$questionarie_tab
     # Save assessment general info
     dbExecute(con(), "UPDATE assessments SET endDate = ?, 
                                               hosts = ?,
@@ -1224,7 +1144,6 @@ server <- function(input, output, session) {
                                              WHERE idAssessment = {as.integer(assessments$selected$idAssessment)}"))
     
     ### save entry pathways
-    # selected_pathways <- assessments$selected_pathways
     selected_pathways <- input$ass_pot_entry_path
     current_pathways <- names(assessments$entry)
     paths_to_add <- setdiff(selected_pathways, current_pathways) |> as.integer()
@@ -1262,8 +1181,6 @@ server <- function(input, output, session) {
                   params = list(idEntryPath))
         
       }
-      # assessments$selected <- NULL
-      # assessments$entry <- NULL
       updateTabsetPanel(session, "all_assessments", selected = "all")
       proxyassessments |> selectRows(NULL)  
     } # end remove
@@ -1279,7 +1196,6 @@ server <- function(input, output, session) {
   
   observe({
     req(input$questionarie_tab)
-    # print(input$questionarie_tab)
     if(input$questionarie_tab %in% c(1,7)) {
       shinyjs::hide(id = "save_answers")
     } else {
@@ -1289,8 +1205,24 @@ server <- function(input, output, session) {
   
   ## Save all answers in Assessment ----
   observeEvent(input$save_answers, {
-     # req(input$ass_pot_entry_path)
-     tab_now <- input$questionarie
+     tab_now <- input$questionarie_tab
+     dbExecute(con(), "UPDATE assessments SET endDate = ?,
+                                              reference = ? 
+                              WHERE idAssessment = ?",
+               params = list(format(now("CET"), "%Y-%m-%d %H:%M:%S"),
+                             input$ass_reftext,
+                             assessments$selected$idAssessment))
+     
+     assessments$data <- dbReadTable(con(), "assessments")
+     assessments$selected <- assessments$data[input$assessments_rows_selected, ]
+     
+     assessments$selected <- assessments$selected |> 
+       left_join(pests$data, by = "idPest") |>
+       left_join(assessors$data, by = "idAssessor") |> 
+       mutate(label = paste(scientificName, eppoCode, 
+                            paste(firstName, lastName), startDate, 
+                            sep = "_"))
+     
      selected_entries <- dbGetQuery(con(), glue("SELECT * FROM entryPathways
                                                WHERE idAssessment = {assessments$selected$idAssessment}"))
  
@@ -1350,7 +1282,6 @@ server <- function(input, output, session) {
     } # end if nrow resmain
     answers$main <- dbGetQuery(con(), glue("SELECT * FROM answers WHERE idAssessment = {assessments$selected$idAssessment}"))
 
-# print(names(assessments$entry))
     if (!is.null(assessments$entry)) {
       answ_ent_path <- extract_answers_entry(questions$entry, groupTag = "ENT", 
                                          path = names(assessments$entry), 
@@ -1360,7 +1291,6 @@ server <- function(input, output, session) {
 
       if(any_non){
         frominput$entry <- get_inputs_path_as_df(answ_ent_path, input) 
-# print(frominput$entry)
         resentry <- frominput$entry
         if (!is.null(resentry)) {
           if(nrow(resentry) >= 1) {
@@ -1417,12 +1347,7 @@ server <- function(input, output, session) {
                                                 FROM pathwayAnswers AS pa 
                                                 LEFT JOIN entryPathways AS ep ON pa.idEntryPathway = ep.idEntryPathway
                                                 WHERE pa.idEntryPathway IN ({paste(selected_entries$idEntryPathway, collapse = ', ')})"))
-                                                # WHERE ep.idPathway IN ({paste(names(assessments$entry), collapse = ', ')})"))
     } # end if entry not null
-# print(answers$entry)
-    
-    # save$status <- "Saved ✔️"
-    # save$timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
     
     shinyalert(
       title = "Success",
@@ -1455,11 +1380,14 @@ server <- function(input, output, session) {
   proxysimulations <- dataTableProxy("simulations")
   
   observeEvent(input$simulations_rows_selected, {
+    sims <-  simulations$data |> 
+      filter(idAssessment == assessments$selected$idAssessment)
+    
     # req(simulations$data)
     if (is.null(input$simulations_rows_selected)) {
       simulations$selected <- NULL
     } else {
-      simulations$selected <- simulations$data[input$simulations_rows_selected, ]
+      simulations$selected <- sims[input$simulations_rows_selected, ]
       updateNumericInput(session, "n_sim", value = simulations$selected$iterations)
       updateNumericInput(session, "lambda_sim", value = simulations$selected$lambda)
       updateNumericInput(session, "w1_sim", value = simulations$selected$w1)
@@ -1546,8 +1474,6 @@ server <- function(input, output, session) {
                             c("IMP4",0,0,0))
       }
       
-  # answers_df_exp <<- answers_df
-  
       answers_entry_df <- answers$entry |> 
         left_join(questions$entry, by = "idPathQuestion") |> 
         select(-list) |> 
@@ -1562,8 +1488,7 @@ server <- function(input, output, session) {
         mutate(min_points = ifelse(is.na(min_points), 0, min_points),
                likely_points = ifelse(is.na(likely_points), 0, likely_points),
                max_points = ifelse(is.na(max_points), 0, max_points)) 
-  # answers_entry_df_exp <<- answers_entry_df
-      
+  
       # Run simulation function
       simulations$results <- simulation(answers_df, answers_entry_df, 
                                         iterations = input$n_sim, lambda = input$lambda_sim, 
@@ -1572,14 +1497,14 @@ server <- function(input, output, session) {
       simulations$summary <- simulations$results |>
         as.data.frame() |> 
         reframe(across(everything(), list(
-          min = ~min(.x, na.rm = TRUE) |> round(2),
-          q5  = ~quantile(.x, 0.05, na.rm = TRUE) |> round(2),
-          q25  = ~quantile(.x, 0.25, na.rm = TRUE) |> round(2),
-          median  = ~quantile(.x, 0.50, na.rm = TRUE) |> round(2),
-          q75  = ~quantile(.x, 0.75, na.rm = TRUE) |> round(2),
-          q95  = ~quantile(.x, 0.95, na.rm = TRUE) |> round(2),
-          max = ~max(.x, na.rm = TRUE) |> round(2),
-          mean = ~mean(.x, na.rm = TRUE) |> round(2)
+          min = ~min(.x, na.rm = TRUE) |> round(3),
+          q5  = ~quantile(.x, 0.05, na.rm = TRUE) |> round(3),
+          q25  = ~quantile(.x, 0.25, na.rm = TRUE) |> round(3),
+          median  = ~quantile(.x, 0.50, na.rm = TRUE) |> round(3),
+          q75  = ~quantile(.x, 0.75, na.rm = TRUE) |> round(3),
+          q95  = ~quantile(.x, 0.95, na.rm = TRUE) |> round(3),
+          max = ~max(.x, na.rm = TRUE) |> round(3),
+          mean = ~mean(.x, na.rm = TRUE) |> round(3)
         ), .names = "{.col}_{.fn}")) |>
         pivot_longer(cols = everything(),
                      names_to = c("variable", "stat"),
@@ -1618,8 +1543,8 @@ server <- function(input, output, session) {
   
   ## Save Simulation ----
   observeEvent(input$save_sim, {
-    req(simulations$results)
-    # save$status <- "Saving"    
+    
+    req(simulations$results)  ## To prevent saving again what you selected
     
     res <- dbExecute(conn = con(),
                      "INSERT INTO simulations(idAssessment, iterations, lambda, weight1, weight2, date)
@@ -1630,7 +1555,6 @@ server <- function(input, output, session) {
                                    input$w1_sim,
                                    input$w2_sim,
                                    format(now("CET"), "%Y-%m-%d %H:%M:%S")) 
-                                   # format(today("CET"), "%Y-%m-%d"))
                      )
     
     # Insert simulation results
@@ -1640,25 +1564,12 @@ server <- function(input, output, session) {
       as.data.frame() |>
       mutate(idSimulation = sim_id) |>
       select(idSimulation, everything())
-    # sim_sum_exp <<- sim_sum
 
     dbWriteTable(con(), "simulationSummaries", sim_sum, append = TRUE, row.names = FALSE)
 
-      # Insert rows one by one
-      # for (i in seq_len(nrow(sim_sum))) {
-      #   dbExecute(con(), 
-      #             "INSERT INTO simulationSummaries (idSimulation, variable, min, q5,  
-      #                                               q25, median, q75, q95, max, mean) 
-      #             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-      #             params = as.list(sim_sum[i, ]) |> unname()
-      #             )
-      # }
-
-    
     simulations$data <- dbReadTable(con(), "simulations")
     
-    # save$status <- "Saved ✔️"
-    # save$timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+    simulations$results <- NULL
     
     shinyalert(
       title = "Success",
@@ -1685,12 +1596,8 @@ server <- function(input, output, session) {
               colnames = c("Pest species", "EPPO code", "GBIF taxon key", "Common names", 
                            "Synonyms", "Taxonomic Group", "Quarantine Status", "Present in Europe"),
               options = list(
-                # columnDefs = list(
-                #   list(targets = c(0), visible = FALSE) # hides 1st column 
-                # ),
-                dom = 'lftpB', #pageLength = 6,
+                dom = 'lftpB',
                 stateSave = TRUE,
-                # language = list(url = '//cdn.datatables.net/plug-ins/1.10.11/i18n/Swedish.json'),
                 searching = TRUE, autoFill = FALSE, ordering = TRUE,
                 lengthMenu = list(c(10, 25, 50, 100, -1),
                                   c('10', '25', '50', '100','All')),
@@ -1704,8 +1611,6 @@ server <- function(input, output, session) {
   observeEvent(input$new_pest, {
     showModal(modalDialog(
       title = "Add New Pest Species",
-      # fluidRow(
-      #   column(width = 6,
                textInput("new_sci", "Scientific Name*"),
                textInput("new_common", "Common Name"),
                textInput("new_synonyms", "Synonyms"),
@@ -1716,11 +1621,6 @@ server <- function(input, output, session) {
                selectInput("new_quaran", "Quarantine Status*", choices = setNames(c("", quaran$data$idQuarantineStatus),
                                                                                   c("", quaran$data$name))),
                checkboxInput("new_ineu", "Is the pest species present in Europe?"),
-        # ),
-        # column(width = 6,
-               
-        # )
-      # ),
       footer = tagList(
         modalButton("Cancel"),
         actionButton("confirm_pest", "Save")
@@ -1784,7 +1684,6 @@ server <- function(input, output, session) {
     pests$data <- dbReadTable(con(), "pests")
     new_id <- pests$data |> 
       filter(scientificName == input$new_sci) |> 
-      # alternativelly last()
       pull(idPest)
     
     shinyalert(
@@ -1794,7 +1693,7 @@ server <- function(input, output, session) {
     )
     
     removeModal()
-    # update_dropdowns()
+    update_options(assessors$data, pests$data, taxa$data, quaran$data, pathways$data, session)
   })
   
   # Assessors ----
@@ -1803,11 +1702,6 @@ server <- function(input, output, session) {
     showModal(modalDialog(
       title = "Add New Assessor",
       textInput("new_name", "First Name"),
-      # textInputIcon(
-      #   inputId = "ex1",
-      #   label = "With an icon",
-      #   icon = icon("circle-user")
-      # ),
       textInput("new_last", "Last Name"),
       textInput("new_email", "Email"),
       footer = tagList(
@@ -1823,7 +1717,7 @@ server <- function(input, output, session) {
     assessors$data <- dbReadTable(con(), "assessors")
     assessors$data$label <- paste(assessors$data$firstName, assessors$data$lastName)
     removeModal()
-    # update_dropdowns()
+    update_options(assessors$data, pests$data, taxa$data, quaran$data, pathways$data, session)
   })
   
   # END ----

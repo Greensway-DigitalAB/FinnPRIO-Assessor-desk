@@ -3,9 +3,6 @@ drives <- substr(sysdrive[-c(1, length(sysdrive))], 1, 1)
 named_paths <- setNames(paste0(drives, ":/"), paste0(drives, ":"))
 
 volumes <- c(Home = fs::path_home(), 
-             # "C:" = "C:/",
-             # "D:" = "D:/",
-             # "R:" = "R:/", 
              named_paths, 
              "My Computer" = "/")  # Customize as needed
 
