@@ -3,7 +3,7 @@ This repo prodives the app code wrapped in an Inno setup structure that will pro
 
 ## Bundle a portable web browser
 
-Download and install [Google Chrome Portable](https://portableapps.com/apps/internet/google_chrome_portable), then copy the contents of **GoogleChromePortable\App\Chrome-bin\\** into the **chrome** folder.
+A [Google Chrome Portable](https://portableapps.com/apps/internet/google_chrome_portable) is bundled with this app in the **browser** folder.
 
 Other suitable browsers may be also be used, but make sure to change *browser_path* in **run.R**.
 
