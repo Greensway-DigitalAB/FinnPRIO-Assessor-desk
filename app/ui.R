@@ -75,9 +75,14 @@ navbarPage("FinnPRIO-Assessor",
              
              fluidRow(
                style = "margin:20px",
-                      uiOutput("file_input_ui"),
+               div(style = "display: flex; align-items: center; gap: 8px;",
+                   uiOutput("file_input_ui"),
+                   uiOutput("db_status")
+               ),
                       # uiOutput("file_path_ui") ## in case we want to work with uploading the file
                uiOutput("unload_db_ui")
+               # uiOutput("close_app_ui")
+               
               )
              ),
            theme = shinythemes::shinytheme("sandstone")

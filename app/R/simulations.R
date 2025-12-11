@@ -53,25 +53,26 @@ generate_inclusion_exclusion_score <- function(score_matrix) {
 #' @param w2 Weight for the second set of impact questions.
 #' @return A matrix with simulation results for various risk components.
 
-simulation <- function(answers, answers_entry, 
+simulation <- function(answers, answers_entry, pathways, 
                        iterations = 5000, lambda = 1, 
                        w1 = 0.5, w2 = 0.5){
   
-  pathways <- unique(answers_entry$idpathway)
-  scores <- array(0, dim = c(iterations, length(pathways), 2, 3)) #A, B
+  used_pathways <- unique(answers_entry$idpathway)
+  scores <- array(0, dim = c(iterations, length(used_pathways), 2, 3)) #A, B
   rownames(scores) <- paste0("sim", 1:iterations)
-  colnames(scores) <- paste0("path",pathways)
+  colnames(scores) <- paste0("path",used_pathways)
   dimnames(scores)[[3]] <- c("A", "B")
   dimnames(scores)[[4]] <- c("1", "2", "3")
   
-  scorePathway <- array(0, dim = c(iterations, length(pathways), 2)) #A, B
+  scorePathway <- array(0, dim = c(iterations, length(used_pathways), 2)) #A, B
   rownames(scorePathway) <- paste0("sim", 1:iterations)
-  colnames(scorePathway) <- paste0("path", pathways)
+  colnames(scorePathway) <- paste0("path", used_pathways)
   dimnames(scorePathway)[[3]] <- c("A", "B")
 
   ENT1 <- rpert_from_tag(answers, tag = "ENT1")
   
-  for (p in pathways){
+  for (p in used_pathways){
+    g <- pathways |> filter(idPathway == p) |> pull(group)
     ENT2A <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT2A")
     ENT2B <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT2B")
     ENT3 <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT3")
@@ -91,12 +92,12 @@ simulation <- function(answers, answers_entry,
     scores[, paste0("path",p), "A", 2] <- ((ENT2A * ENT4) / 9)
     scores[, paste0("path",p), "A", 3] <- ((ENT1 * ENT2A * ENT3A * ENT4) / 81)
     
-    ## OBS equal is not consider 
+    ## Note make it dependant on pathways "group". Could be simplified 
     scorePathway[,paste0("path",p), "A"] <- case_when(
-      p < 2 ~ scores[, paste0("path",p), "A", 2], #((ENT2A*ENT4)/9)
-      p < 4 ~ scores[, paste0("path",p), "A", 1], #((ENT1*ENT2A*ENT4)/27)
-      # p > 4 ~ scores[, paste0("path",p), "A", 3], #((ENT1*ENT2A*ENT3A*ENT4)/81)
-      .default = scores[, paste0("path",p), "A", 3] #((ENT1*ENT2A*ENT3A*ENT4)/81) # Default case
+      g == 1 ~ scores[, paste0("path",p), "A", 2], #((ENT2A*ENT4)/9)
+      g == 2 ~ scores[, paste0("path",p), "A", 1], #((ENT1*ENT2A*ENT4)/27)
+      g == 3 ~ scores[, paste0("path",p), "A", 3], #((ENT1*ENT2A*ENT3A*ENT4)/81)
+      .default = NA # Default case
     )
 
     ENT3B <- ENT3
@@ -113,10 +114,10 @@ simulation <- function(answers, answers_entry,
     
     ## OBS equal is not consider 
     scorePathway[,paste0("path",p), "B"] <- case_when(
-      p < 2 ~ scores[, paste0("path",p), "B", 2], #((ENT2A*ENT4)/9)
-      p < 4 ~ scores[, paste0("path",p), "B", 1], #((ENT1*ENT2A*ENT4)/27)
-      # p > 4 ~ scores[, paste0("path",p), "B", 3], #((ENT1*ENT2A*ENT3A*ENT4)/81)
-      .default = scores[, paste0("path",p), "B", 3] #((ENT1*ENT2A*ENT3A*ENT4)/81) # Default case
+      g == 1 ~ scores[, paste0("path",p), "B", 2], #((ENT2A*ENT4)/9)
+      g == 2 ~ scores[, paste0("path",p), "B", 1], #((ENT1*ENT2A*ENT4)/27)
+      g == 3 ~ scores[, paste0("path",p), "B", 3], #((ENT1*ENT2A*ENT3A*ENT4)/81)
+      .default = NA # Default case
     )
     
   } # end for pathways

@@ -495,8 +495,8 @@ check_minmax_completeness <- function(df, all = FALSE) {
     # message("❌ Incomplete 'minmax' rows found:")
     shinyalert("title" = "Incomplete assessment rows found",
                "text" = paste("Please complete the following questions:", 
-                              paste(incomplete$question, collapse = ", ")),
-               type = "error")
+                              paste(incomplete$question, collapse = ", "), sep = "<br>"),
+               type = "error", html = TRUE)
     # print(incomplete)
     return(FALSE)
   }

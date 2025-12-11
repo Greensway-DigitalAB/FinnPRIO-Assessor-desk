@@ -1,5 +1,5 @@
 #define MyAppName "FinnPRIO Assessor"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Greensway Digital AB"
 #define MyAppURL "https://greensway.se/digital-plattform/"
 #define MyAppExeName "FinnPRIO.bat"

@@ -3,12 +3,14 @@ server <- function(input, output, session) {
   load <- reactiveValues(status = FALSE, timestamp = NULL)
 
   con <- reactiveVal()
+  dbStatus <- reactiveValues(data = NULL, dibs = FALSE)
   assessors <- reactiveValues(data = NULL)
   threats <- reactiveValues(data = NULL)
   pests <- reactiveValues(data = NULL)
   taxa <- reactiveValues(data = NULL)
   quaran <- reactiveValues(data = NULL)
   pathways <- reactiveValues(data = NULL)
+  pathways_n <- 0
   assessments <- reactiveValues(data = NULL, #questionarie = NULL, 
                                 selected = NULL, entry = NULL,
                                 selected_pathways = NULL,
@@ -21,10 +23,7 @@ server <- function(input, output, session) {
   frominput <- reactiveValues(main = NULL, entry = NULL)
 
   
-  shinyDirChoose(input, "db_folder", roots = volumes, session = session,  
-                 restrictions = system.file(package = "base"), allowDirCreate = FALSE)
   shinyFileChoose(input, "db_file", roots = volumes, session = session)
-  db_path <- reactiveVal(NULL)
   db_file <- reactiveVal(NULL)
   
   ## In case you want to Uppload a file instead
@@ -43,6 +42,10 @@ server <- function(input, output, session) {
   #     )
   #   }
   # })
+  
+  shinyDirChoose(input, "db_folder", roots = volumes, session = session,  
+                 restrictions = system.file(package = "base"), allowDirCreate = FALSE)
+  db_path <- reactiveVal(NULL)
   
   output$file_input_ui <- renderUI({
     if (load$status == FALSE){
@@ -67,28 +70,10 @@ server <- function(input, output, session) {
                  style = "margin-top: 20px;")
   })
   
-  observeEvent(input$unload_db, {
-    dbDisconnect(con())
-    runjs("document.getElementById('db_file').value = ''")
-    assessments$data <- NULL
-    assessments$selected <- NULL
-    assessments$entry <- NULL
-    assessments$threats <- NULL
-    assessments$selected <- NULL
-    answers$main <- NULL
-    answers$entry <- NULL
-    load$status <- FALSE
-    load$timestamp <- NULL
-    updateTabsetPanel(session, "all_assessments", selected = "1")
-  })
-  
-  
-  # observeEvent(input$disconnect_db, {
-  #   runjs("document.getElementById('db_file').value = ''")
-  #   dbDisconnect(con())
-  #   con(NULL)
-  #   session$reload()
-  #   load$status <- FALSE
+  # output$close_app_ui <- renderUI({
+  #   req(load$status)
+  #   actionButton("close_app", "Close the app", 
+  #                style = "margin-top: 20px;")
   # })
   
   observeEvent(input$db_file, {
@@ -126,13 +111,35 @@ server <- function(input, output, session) {
 
     withProgress({
       setProgress(.1)
-      consql <- dbConnect(RSQLite::SQLite(), db_path())
+      consql <<- dbConnect(RSQLite::SQLite(), db_path())
       # consql <- dbConnect(RSQLite::SQLite(), dbname = input$db_file$datapath)
       con(consql)
       if (!is.null(con())) {
         message("Connection established")
         message("You are in Neo")
         setProgress(.3)
+        dbStatus$data <- dbReadTable(con(), "dbStatus")
+        
+        ### if enough time has passed from the use set it to 0
+        if (dbStatus$data$inUse == 1 ) {
+          # then check time
+          since <- difftime(now(), 
+                            as_datetime(dbStatus$data$timeStamp), 
+                            units = "hours")
+          if(since > 4) { # hours
+            # reset it  
+            dbExecute(con(), "UPDATE dbStatus
+                          SET inUse = 0,
+                              timeStamp = CURRENT_TIMESTAMP
+                          WHERE rowid = (SELECT MAX(rowid) FROM dbStatus);")
+            dbStatus$data <- dbReadTable(con(), "dbStatus")
+          } else {
+            dbStatus$dibs <- FALSE
+          }
+        } else {
+          dbStatus$dibs <- TRUE  
+        }
+        
         assessors$data <- dbReadTable(con(), "assessors")
         assessors$data$fullName <- paste(assessors$data$firstName, assessors$data$lastName)
         threats$data <- dbReadTable(con(), "threatenedSectors")
@@ -140,6 +147,7 @@ server <- function(input, output, session) {
         taxa$data <- dbReadTable(con(), "taxonomicGroups")
         quaran$data <- dbReadTable(con(), "quarantineStatus")
         pathways$data <- dbReadTable(con(), "pathways")
+        pathways_n <- nrow(pathways$data)
         setProgress(.5)
         assessments$data <- dbReadTable(con(), "assessments")
         simulations$data <- dbReadTable(con(), "simulations")
@@ -157,6 +165,97 @@ server <- function(input, output, session) {
     req(con())
     update_options(assessors$data, pests$data, taxa$data, quaran$data, pathways$data, session)
   })
+  
+  ## disconnect or unload ----
+  observeEvent(input$unload_db, {
+    message("restarting session")
+    if (dbStatus$dibs) { # make it available
+      dbExecute(con(), "UPDATE dbStatus
+                        SET inUse = 0,
+                            timeStamp = CURRENT_TIMESTAMP
+                        WHERE rowid = (SELECT MAX(rowid) FROM dbStatus);")
+    }
+    dbDisconnect(con())
+    # session$close()
+    session$reload()
+    # shinyjs::runjs("location.reload();")
+  })
+  
+  
+  # observeEvent(input$disconnect_db, {
+  #   runjs("document.getElementById('db_file').value = ''")
+  #   dbDisconnect(con())
+  #   con(NULL)
+  #   session$reload()
+  #   load$status <- FALSE
+  # })
+  
+  # observeEvent(input$close_app,{
+  #   message("closing session")
+  #   dbDisconnect(con())
+  #   session$close()
+  # })
+  
+  ### Flag for usage ----
+  output$db_status <- renderUI({
+# print(load$status)
+#     print(dbStatus$data)
+    if (is.null(dbStatus$dibs) ) return(NULL)
+    if (!load$status){
+      return(NULL)
+    } else {
+      if(nrow(dbStatus$data) > 1){
+        tagList(
+          h5("it seems the tabel 'dbStatus' has been corrupted. It should contain only one row.")#,
+        )
+      } else { # if db ok
+        if( dbStatus$dibs) {
+          # is not being used
+          # tagList(
+          #   h5("")#,
+          # )
+          # you dont need any warning
+          # Claim it DIBS
+          dbExecute(con(), "UPDATE dbStatus 
+                       SET inUse = 1,
+                           timeStamp = CURRENT_TIMESTAMP
+                       WHERE rowid = (SELECT MAX(rowid) FROM dbStatus);")
+          return(NULL)
+        } else {
+          # it is being used
+          shinyalert("Be careful", "It seems somebody else is using the database file. <br>
+                     Although it is ok to browse the data, it may get damaged or sessions may act weird if you proceed.<br>
+                     Do you want to proceed anyway?",
+                     "warning",
+                     showConfirmButton = TRUE, showCancelButton = TRUE,
+                     confirmButtonText = "YES", cancelButtonText = "NO",
+                     timer = 0, animation = TRUE, html = TRUE,
+                     callbackR = function(value) {
+                       if (value) {
+                         
+                       } else {
+                         message("ending session due to simultaneous use")
+                         dbDisconnect(con())
+                         session$close()
+                       }
+                     })  # END if Value, callback, shinyAlert
+          
+          disable("new_ass")
+          disable("save_answers")
+          disable("save_general")
+          # disable("save_sim")
+          
+          tagList(
+            h4("The database is being used by your colleage",  style = "color: red; font-weight: bold;")#,
+          )
+        }
+
+      }
+
+    }
+  })
+
+
   
 # Assessments ----
   # Show saved assessments
@@ -212,15 +311,24 @@ server <- function(input, output, session) {
   
   ## Modal for new assessment ----
   observeEvent(input$new_ass, {
-    assessments$selected <- NULL
-    assessments$entry <- NULL
     answers$main <- NULL
     answers$entry <- NULL
+    frominput$main <- NULL
+    frominput$entry <- NULL
+    assessments$selected <- NULL
+    assessments$entry <- NULL
+    assessments$threats <- NULL
+    simulations$selected <- NULL
+    simulations$results <- NULL
+    simulations$summary <- NULL
+    
     proxyassessments |> selectRows(NULL)  
+    proxysimulations |> selectRows(NULL)  
     
     req(pests$data)
     req(assessors$data)
     req(pathways$data)
+    
     showModal(modalDialog(
       title = "Add New Assessment",
       selectInput("pest", "Pest Species", 
@@ -250,7 +358,7 @@ server <- function(input, output, session) {
               params = list(input$pest, input$assessor, input$pot_entry_path_text, 
                             as.character(today("CET")), format(now("CET"), "%Y-%m-%d %H:%M:%S")  ))
     assessments$data <- dbReadTable(con(), "assessments")
-    id_new_ass <- last(assessments$data$idAssessment) ## Alternatively highest if they return disordered
+    id_new_ass <- max(assessments$data$idAssessment) ## highest if they return disordered
     
     if (length(input$pot_entry_path) > 0) {
       for (p in input$pot_entry_path) {
@@ -260,7 +368,7 @@ server <- function(input, output, session) {
     }
     # assessments$entry <- dbReadTable(con(), "entryPathways")
     removeModal()
-    update_options(assessors$data, pests$data, taxa$data, quaran$data, pathways$data, session)
+    # update_options(assessors$data, pests$data, taxa$data, quaran$data, pathways$data, session)
   })
   
   ## Export wide table ----
@@ -278,15 +386,19 @@ server <- function(input, output, session) {
   observeEvent(input$assessments_rows_selected, {
     frominput$main <- NULL
     frominput$entry <- NULL
+    assessments$selected <- NULL
+    assessments$entry <- NULL
+    assessments$threats <- NULL
+    answers$main <- NULL
+    answers$entry <- NULL
+    simulations$selected <- NULL
+    simulations$results <- NULL
+    simulations$summary <- NULL
     
     ## If no selection, clear selected assessment
-    if (is.null(input$assessments_rows_selected)) {
-      assessments$selected <- NULL
-      assessments$entry <- NULL
-      assessments$threats <- NULL
-      answers$main <- NULL
-      answers$entry <- NULL
-    } else {
+    # if (is.null(input$assessments_rows_selected)) {
+    # } else {
+    if (!is.null(input$assessments_rows_selected)) {
       ## OBS! watch here the selection process based on the filter options
       assessments$selected <- assessments$data[input$assessments_rows_selected, ]
       
@@ -333,54 +445,57 @@ server <- function(input, output, session) {
   })
   
   output$assessment_summary <- renderUI({
-    req(input$assessments_rows_selected)
-    
-    ass_info <- assessments$selected
-    
-    # Build card UI
-    tagList(
-      tags$div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
-              fluidRow(
-                 column(4, 
-                        h3(em(ass_info$scientificName)),
-                        h4(ass_info$fullName),
-                        p("Created on", ass_info$startDate),
-                        p("Last edited on", ass_info$endDate),
-                        p("Questionary ver.", ass_info$version),
-                        checkboxInput("ass_finish", label = "Is finished?", value = ass_info$finished),
-                        checkboxInput("ass_valid", label = "Is valid?", value = ass_info$valid),
-                        downloadButton("download_report", "Download Assessment Report"),
-                        actionButton("save_general", "Save assessment details"),
-                        uiOutput("species_summary")
-                        ),
-                 column(4,
-                        tags$div(class = "card", 
-                                 style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
-                                 h4(strong("Hosts"), style = "color:#7C6A56"),
-                                 textAreaInput("ass_hosts", label = "", 
-                                               value = ifelse(is.na(ass_info$hosts), "", ass_info$hosts),
-                                               width = "auto", height = "200px", resize = "vertical")
-                        ),
-                        tags$div(class = "card", 
-                                 style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
-                                 uiOutput("threat_checkboxes")
-                                 )
-                        ),
-                  column(4,
-                         tags$div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
-                                  uiOutput("entrypath_checkboxes")
-                                  )
-                  )
-              ),
-             fluidRow(
-               h4(strong("Notes"), style = "color:#7C6A56"),
-               textAreaInput("ass_notes", label = "", 
-                             value = ifelse(is.na(ass_info$notes), "", ass_info$notes),
-                             width = "auto", height = "500px", resize = "vertical")
-               )
+    # req(input$assessments_rows_selected)
+    if(is.null(assessments$selected)){
+      ui <- NULL
+    } else {
+      ass_info <- assessments$selected
+      
+      # Build card UI
+      ui <- tagList(
+        tags$div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
+                fluidRow(
+                   column(4, 
+                          h3(em(ass_info$scientificName)),
+                          h4(ass_info$fullName),
+                          p("Created on", ass_info$startDate),
+                          p("Last edited on", ass_info$endDate),
+                          p("Questionary ver.", ass_info$version),
+                          checkboxInput("ass_finish", label = "Is finished?", value = ass_info$finished),
+                          checkboxInput("ass_valid", label = "Is valid?", value = ass_info$valid),
+                          downloadButton("download_report", "Download Assessment Report"),
+                          actionButton("save_general", "Save assessment details"),
+                          uiOutput("species_summary")
+                          ),
+                   column(4,
+                          tags$div(class = "card", 
+                                   style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
+                                   h4(strong("Hosts"), style = "color:#7C6A56"),
+                                   textAreaInput("ass_hosts", label = "", 
+                                                 value = ifelse(is.na(ass_info$hosts), "", ass_info$hosts),
+                                                 width = "auto", height = "200px", resize = "vertical")
+                          ),
+                          tags$div(class = "card", 
+                                   style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
+                                   uiOutput("threat_checkboxes")
+                                   )
+                          ),
+                    column(4,
+                           tags$div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
+                                    uiOutput("entrypath_checkboxes")
+                                    )
+                    )
+                ),
+               fluidRow(
+                 h4(strong("Notes"), style = "color:#7C6A56"),
+                 textAreaInput("ass_notes", label = "", 
+                               value = ifelse(is.na(ass_info$notes), "", ass_info$notes),
+                               width = "auto", height = "500px", resize = "vertical")
+                 )
+        )
       )
-    )
-    
+    }
+    return(ui)
   })
   
   ### Download a report ----
@@ -461,6 +576,7 @@ server <- function(input, output, session) {
     } else {
       assessments$selected_pathways <- input$ass_pot_entry_path
     }
+    if(dbStatus$dibs) enable("save_general") else disable("save_general")
   })
    
 
@@ -508,256 +624,267 @@ server <- function(input, output, session) {
   output$questionarie <- renderUI({
     req(questions$main)
     req(answers$main)
-    req(assessments$selected)
+    # req(assessments$selected)
     req(input$assessments_rows_selected)
     
     quesEnt <- questions$main |> filter(group == "ENT") |> arrange(number)
     quesEst <- questions$main |> filter(group == "EST") |> arrange(number)
     quesImp <- questions$main |> filter(group == "IMP") |> arrange(number)
     quesMan <- questions$main |> filter(group == "MAN") |> arrange(number)
+    
+    
     answers_logical <- answers_2_logical(answers$main, questions$main)
-    tagList(
-      tabsetPanel(id = "questionarie_tab",
-        tabPanel(id = "info", value = 1, 
-                 title = "General Information",
-                 uiOutput("assessment_summary")
-        ),
-        tabPanel(id = "entry", 
-                 title = "Entry", value = 2, 
-                 lapply(1:nrow(quesEnt), 
-                        function(x){
-                          question <- quesEnt$question[x]
-                          options <- quesEnt$list[x]
-                          id <- quesEnt$number[x]
-                          info <- quesEnt$info[x]
-                          just <- answers$main |> 
-                            filter(idQuestion == quesEnt$idQuestion[x]) |> 
-                            pull(justification)
-                          tagList(
-                            div(style = "display: flex; align-items: center; gap: 8px;",
-                              h4(glue("ENT {id}: {question}")),
-                              h4("(i)",
-                               tags$span(HTML(info), 
-                                         style = "color:black; font-size: 12px;"),
-                               class = "bubble")
-                            ),
-                            fluidRow(
-                              div(style = "margin: 20px;",
-                                  render_quest_tab("ENT", id, question,
-                                                   fromJSON(options)$opt,
-                                                   fromJSON(options)$text,
-                                                   answers_logical),
-                                  br(),
-                                  textAreaInput(glue("justENT{id}"),
-                                                label = "Justification",
-                                                value = just,  
-                                                width = 'auto',
-                                                height = '150px',
-                                                resize = "vertical")
-                                  # )
-                              )
-                            ),
-                            hr(style = "border-color: gray;")
-                          )
-                        }),
-                 br(),
-                 uiOutput("questionariePath")
-        ),
-        tabPanel(id = "est", value = 3, 
-                 title = "Establishment and Spread",
-                 lapply(1:nrow(quesEst), 
-                        function(x){
-                          question <- quesEst$question[x]
-                          options <- quesEst$list[x]
-                          id <- quesEst$number[x]
-                          info <- quesEst$info[x]
-                          just <- answers$main |> 
-                            filter(idQuestion == quesEst$idQuestion[x]) |> 
-                            pull(justification)
-                          tagList(
-                            div(style = "display: flex; align-items: center; gap: 8px;",
-                                h4(glue("EST {id}: {question}")),
+    
+    if(is.null(assessments$selected)){
+      ui <- NULL
+    } else {
+      
+      ui <- tagList(
+        tabsetPanel(id = "questionarie_tab",
+          tabPanel(id = "info", value = 1, 
+                   title = "General Information",
+                   uiOutput("assessment_summary")
+          ),
+          tabPanel(id = "entry", 
+                   title = "Entry", value = 2, 
+                   lapply(1:nrow(quesEnt), 
+                          function(x){
+                            question <- quesEnt$question[x]
+                            options <- quesEnt$list[x]
+                            id <- quesEnt$number[x]
+                            info <- quesEnt$info[x]
+                            just <- answers$main |> 
+                              filter(idQuestion == quesEnt$idQuestion[x]) |> 
+                              pull(justification)
+                            tagList(
+                              div(style = "display: flex; align-items: center; gap: 8px;",
+                                h4(glue("ENT {id}: {question}")),
                                 h4("(i)",
-                                   tags$span(HTML(info), 
-                                             style = "color:black; font-size: 12px;"),
-                                   class = "bubble")
-                            ),
-                            fluidRow(
-                              div(style = "margin: 20px;",
-                                  render_quest_tab("EST", id, question,
-                                                   fromJSON(options)$opt,
-                                                   fromJSON(options)$text,
-                                                   answers_logical),
-                                  br(),
-                                  textAreaInput(glue("justEST{id}"),
-                                                label = "Justification",
-                                                value = just,  
-                                                width = 'auto',
-                                                height = '150px',
-                                                resize = "vertical")
-                                  # )
-                              )
-                            ),
-                            hr(style = "border-color: gray;")
-                          )
-                        })
-        ),
-        tabPanel(id = "imp", value = 4, 
-                 title = "Impact",
-                 lapply(1:nrow(quesImp),
-                        function(x){
-                          question <- quesImp$question[x]
-                          options <- quesImp$list[x]
-                          id <- quesImp$number[x]
-                          info <- quesImp$info[x]
-                          just <- answers$main |> 
-                            filter(idQuestion == quesImp$idQuestion[x]) |> 
-                            pull(justification)
-                          type <- quesImp$type[x]
-                          tagList(
-                            div(style = "display: flex; align-items: center; gap: 8px;",
-                                h4(glue("IMP {id}: {question}")),
-                                h4("(i)",
-                                   tags$span(HTML(info), 
-                                             style = "color:black; font-size: 12px;"),
-                                   class = "bubble")
-                            ),
-                            fluidRow(
-                              div(style = "margin: 20px;",
-                                  render_quest_tab("IMP", id, question,
-                                                   fromJSON(options)$opt,
-                                                   fromJSON(options)$text,
-                                                   answers_logical,
-                                                   type),
-                                  br(),
-                                  textAreaInput(glue("justIMP{id}"),
-                                                label = "Justification",
-                                                value = just,  
-                                                width = 'auto',
-                                                height = '150px',
-                                                resize = "vertical")
-                              )
-                            ),
-                            hr(style = "border-color: gray;")
-                          )
-                        })
-        ),
-        tabPanel(id = "man", value = 5, 
-                 title = "Management",
-                 lapply(1:nrow(quesMan),
-                        function(x){
-                          question <- quesMan$question[x]
-                          options <- quesMan$list[x]
-                          id <- quesMan$number[x]
-                          info <- quesMan$info[x]
-                          just <- answers$main |> 
-                            filter(idQuestion == quesMan$idQuestion[x]) |> 
-                            pull(justification)
-                          sub <- quesMan$subgroup[x]
-                          tagList(
-                            div(style = "display: flex; align-items: center; gap: 8px;",
-                                h4(glue("MAN {id}: {question}")),
-                                h4("(i)",
-                                   tags$span(HTML(info), 
-                                             style = "color:black; font-size: 12px;"),
-                                   class = "bubble")
-                            ),
-                            fluidRow(
-                              div(style = "margin: 20px;",
-                                  render_quest_tab("MAN", id, question,
-                                                   fromJSON(options)$opt,
-                                                   fromJSON(options)$text,
-                                                   answers_logical),
-                                  br(),
-                                  textAreaInput(glue("justMAN{id}"),
-                                                label = "Justification",
-                                                value = just,  
-                                                width = 'auto',
-                                                height = '150px',
-                                                resize = "horizontal")
-                              )
-                            ),
-                            hr(style = "border-color: gray;")
-                          )
-                        })
-        ),
-        tabPanel(id = "ref", value = 6, 
-                 title = "References",
-                 br(),
-                 textAreaInput("ass_reftext",
-                               label = "References",
-                               value = ifelse(is.na(assessments$selected$reference), "", 
-                                              assessments$selected$reference),  
-                               width = 'auto',
-                               height = '500px',
-                               resize = "both")
-        ),
-        tabPanel(id = "sim", value = 7, 
-                 title = "Simulation",
-                 br(),
-                 tagList(
-                   div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
-                       h3(strong("All Simulations for this Assessment"), style = "color:#7C6A56"),
-                       DTOutput("simulations")
-                       )
-                   ),
-                 br(),
-                 h4(strong("Run New Simulation"), style = "color:#7C6A56"),
-                 fluidRow(
-                   column(8,
-                          tagList(
-                            div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
-                                h4(strong("Settings"), style = "color:#7C6A56"),
-                                fluidRow(
-                                  column(6,
-                                         # numericInput("seed_sim", "Random Seed:", value = default_sim$seed, min = 1),
-                                         numericInput("n_sim", "Iterations:", 
-                                                      value = default_sim$n_sim, 
-                                                      min = 1000, step = 100),
-                                         numericInput("lambda_sim", "Lambda:", 
-                                                      value = default_sim$lambda, 
-                                                      min = 0, max = 100, step = 1)
-                                  ),
-                                  column(6,
-                                         numericInput("w1_sim", "Weight 1\n(economic impact):", 
-                                                      value = default_sim$w1, 
-                                                      min = 0, max = 1, step = 0.01),
-                                         numericInput("w2_sim", "Weight 2\n(environ. and social impacts):", 
-                                                      value = default_sim$w2, 
-                                                      min = 0, max = 1, step = 0.01)
-                                  )
+                                 tags$span(HTML(info), 
+                                           style = "color:black; font-size: 12px;"),
+                                 class = "bubble")
+                              ),
+                              fluidRow(
+                                div(style = "margin: 20px;",
+                                    render_quest_tab("ENT", id, question,
+                                                     fromJSON(options)$opt,
+                                                     fromJSON(options)$text,
+                                                     answers_logical),
+                                    br(),
+                                    textAreaInput(glue("justENT{id}"),
+                                                  label = "Justification",
+                                                  value = just,  
+                                                  width = 'auto',
+                                                  height = '150px',
+                                                  resize = "vertical")
+                                    # )
                                 )
+                              ),
+                              hr(style = "border-color: gray;")
                             )
-                          )
-                   ),
-                   column(4,
-                          tagList(
-                            div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
-                                actionButton("def_sim", "Default Settings"),
-                                actionButton("new_sim", "Run Simulation"),
-                                actionButton("save_sim", "Save Simulation")
+                          }),
+                   br(),
+                   uiOutput("questionariePath")
+          ),
+          tabPanel(id = "est", value = 3, 
+                   title = "Establishment and Spread",
+                   lapply(1:nrow(quesEst), 
+                          function(x){
+                            question <- quesEst$question[x]
+                            options <- quesEst$list[x]
+                            id <- quesEst$number[x]
+                            info <- quesEst$info[x]
+                            just <- answers$main |> 
+                              filter(idQuestion == quesEst$idQuestion[x]) |> 
+                              pull(justification)
+                            tagList(
+                              div(style = "display: flex; align-items: center; gap: 8px;",
+                                  h4(glue("EST {id}: {question}")),
+                                  h4("(i)",
+                                     tags$span(HTML(info), 
+                                               style = "color:black; font-size: 12px;"),
+                                     class = "bubble")
+                              ),
+                              fluidRow(
+                                div(style = "margin: 20px;",
+                                    render_quest_tab("EST", id, question,
+                                                     fromJSON(options)$opt,
+                                                     fromJSON(options)$text,
+                                                     answers_logical),
+                                    br(),
+                                    textAreaInput(glue("justEST{id}"),
+                                                  label = "Justification",
+                                                  value = just,  
+                                                  width = 'auto',
+                                                  height = '150px',
+                                                  resize = "vertical")
+                                    # )
+                                )
+                              ),
+                              hr(style = "border-color: gray;")
                             )
-                          )
-                   )
-                 ),
-                 fluidRow(
-                   div(style = "margin: 20px;",
-                       tagList(
-                         div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
-                             h4(strong("Results"), style = "color:#7C6A56"),
-                             DTOutput("sim_results")
+                          })
+          ),
+          tabPanel(id = "imp", value = 4, 
+                   title = "Impact",
+                   lapply(1:nrow(quesImp),
+                          function(x){
+                            question <- quesImp$question[x]
+                            options <- quesImp$list[x]
+                            id <- quesImp$number[x]
+                            info <- quesImp$info[x]
+                            just <- answers$main |> 
+                              filter(idQuestion == quesImp$idQuestion[x]) |> 
+                              pull(justification)
+                            type <- quesImp$type[x]
+                            tagList(
+                              div(style = "display: flex; align-items: center; gap: 8px;",
+                                  h4(glue("IMP {id}: {question}")),
+                                  h4("(i)",
+                                     tags$span(HTML(info), 
+                                               style = "color:black; font-size: 12px;"),
+                                     class = "bubble")
+                              ),
+                              fluidRow(
+                                div(style = "margin: 20px;",
+                                    render_quest_tab("IMP", id, question,
+                                                     fromJSON(options)$opt,
+                                                     fromJSON(options)$text,
+                                                     answers_logical,
+                                                     type),
+                                    br(),
+                                    textAreaInput(glue("justIMP{id}"),
+                                                  label = "Justification",
+                                                  value = just,  
+                                                  width = 'auto',
+                                                  height = '150px',
+                                                  resize = "vertical")
+                                )
+                              ),
+                              hr(style = "border-color: gray;")
+                            )
+                          })
+          ),
+          tabPanel(id = "man", value = 5, 
+                   title = "Management",
+                   lapply(1:nrow(quesMan),
+                          function(x){
+                            question <- quesMan$question[x]
+                            options <- quesMan$list[x]
+                            id <- quesMan$number[x]
+                            info <- quesMan$info[x]
+                            just <- answers$main |> 
+                              filter(idQuestion == quesMan$idQuestion[x]) |> 
+                              pull(justification)
+                            sub <- quesMan$subgroup[x]
+                            tagList(
+                              div(style = "display: flex; align-items: center; gap: 8px;",
+                                  h4(glue("MAN {id}: {question}")),
+                                  h4("(i)",
+                                     tags$span(HTML(info), 
+                                               style = "color:black; font-size: 12px;"),
+                                     class = "bubble")
+                              ),
+                              fluidRow(
+                                div(style = "margin: 20px;",
+                                    render_quest_tab("MAN", id, question,
+                                                     fromJSON(options)$opt,
+                                                     fromJSON(options)$text,
+                                                     answers_logical),
+                                    br(),
+                                    textAreaInput(glue("justMAN{id}"),
+                                                  label = "Justification",
+                                                  value = just,  
+                                                  width = 'auto',
+                                                  height = '150px',
+                                                  resize = "horizontal")
+                                )
+                              ),
+                              hr(style = "border-color: gray;")
+                            )
+                          })
+          ),
+          tabPanel(id = "ref", value = 6, 
+                   title = "References",
+                   br(),
+                   textAreaInput("ass_reftext",
+                                 label = "References",
+                                 value = ifelse(is.na(assessments$selected$reference), "", 
+                                                assessments$selected$reference),  
+                                 width = 'auto',
+                                 height = '500px',
+                                 resize = "both")
+          ),
+          tabPanel(id = "sim", value = 7, 
+                   title = "Simulation",
+                   br(),
+                   tagList(
+                     div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
+                         h3(strong("All Simulations for this Assessment"), style = "color:#7C6A56"),
+                         DTOutput("simulations")
                          )
-                       )
+                     ),
+                   br(),
+                   h4(strong("Run New Simulation"), style = "color:#7C6A56"),
+                   fluidRow(
+                     column(8,
+                            tagList(
+                              div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
+                                  h4(strong("Settings"), style = "color:#7C6A56"),
+                                  fluidRow(
+                                    column(6,
+                                           # numericInput("seed_sim", "Random Seed:", value = default_sim$seed, min = 1),
+                                           numericInput("n_sim", "Iterations:", 
+                                                        value = default_sim$n_sim, 
+                                                        min = 1000, step = 100),
+                                           numericInput("lambda_sim", "Lambda:", 
+                                                        value = default_sim$lambda, 
+                                                        min = 0, max = 100, step = 1)
+                                    ),
+                                    column(6,
+                                           numericInput("w1_sim", "Weight 1\n(economic impact):", 
+                                                        value = default_sim$w1, 
+                                                        min = 0, max = 1, step = 0.01),
+                                           numericInput("w2_sim", "Weight 2\n(environ. and social impacts):", 
+                                                        value = default_sim$w2, 
+                                                        min = 0, max = 1, step = 0.01)
+                                    )
+                                  )
+                              )
+                            )
+                     ),
+                     column(4,
+                            tagList(
+                              div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
+                                  actionButton("def_sim", "Default Settings"),
+                                  actionButton("new_sim", "Run Simulation"),
+                                  actionButton("save_sim", "Save Simulation")
+                              )
+                            )
+                     )
+                   ),
+                   fluidRow(
+                     div(style = "margin: 20px;",
+                         tagList(
+                           div(class = "card", style = "padding: 20px; margin-top: 20px; border: 1px solid #ccc; border-radius: 8px;",
+                               h4(strong("Results"), style = "color:#7C6A56"),
+                               DTOutput("sim_results")
+                           )
+                         )
+                     )
                    )
-                 )
+          )
         )
       )
-    )
+    } # end if(is.null(assessments$selected))
+    
+    return(ui)
   })
   
   ### Control all inputs dynamically ----
   observe({
     req(assessments$selected)
+    req(questions$main)
     answ_ent <- extract_answers(questions$main, groupTag = "ENT", input)
     answ_est <- extract_answers(questions$main, groupTag = "EST", input)
     answ_imp <- extract_answers(questions$main, groupTag = "IMP", input)
@@ -766,6 +893,8 @@ server <- function(input, output, session) {
 
     frominput$main <- get_inputs_as_df(answ_all, input) 
     
+    # if(dbStatus$dibs) enable("save_general")
+# print("triggered")
   })
   
   #### Error message for order of minimum likely maximum ----
@@ -917,25 +1046,25 @@ server <- function(input, output, session) {
   
   #### Error message for entry pathways questions ----
   # this is hardcoded for now
-  lapply(c(1:8), function(p){
+  lapply(c(1:pathways_n), function(p){
     output[[paste0("ENT2A_", p, "_warning")]] <- renderUI({
       req(frominput$entry)
       render_severity_warning("ENT2A", frominput$entry |> filter(path == p))
     })
   })
-  lapply(c(1:8), function(p){
+  lapply(c(1:pathways_n), function(p){
     output[[paste0("ENT2B_", p, "_warning")]] <- renderUI({
       req(frominput$entry)
       render_severity_warning("ENT2B", frominput$entry |> filter(path == p))
     })
   })
-  lapply(c(1:8), function(p){
+  lapply(c(1:pathways_n), function(p){
     output[[paste0("ENT3_", p, "_warning")]] <- renderUI({
       req(frominput$entry)
       render_severity_warning("ENT3", frominput$entry |> filter(path == p))
     })
   })
-  lapply(c(1:8), function(p){
+  lapply(c(1:pathways_n), function(p){
     output[[paste0("ENT4_", p, "_warning")]] <- renderUI({
       req(frominput$entry)
       render_severity_warning("ENT4", frominput$entry |> filter(path == p))
@@ -1374,6 +1503,7 @@ server <- function(input, output, session) {
               selection = "single",
               rownames = FALSE,
               options = list(paging = FALSE,
+                             stateSave = TRUE,
                              searching = FALSE))
   })
   
@@ -1386,6 +1516,8 @@ server <- function(input, output, session) {
     # req(simulations$data)
     if (is.null(input$simulations_rows_selected)) {
       simulations$selected <- NULL
+      simulations$results <- NULL
+      simulations$summary <- NULL
     } else {
       simulations$selected <- sims[input$simulations_rows_selected, ]
       updateNumericInput(session, "n_sim", value = simulations$selected$iterations)
@@ -1462,7 +1594,7 @@ server <- function(input, output, session) {
         ) |> 
         as.data.frame()
       
-      #Check if IMP4 is present
+      #Check if IMP2&4 is present
       if (!"IMP2" %in% answers_df$question) {
         # Create a row with 0 values for IMP4
         answers_df <- rbind(answers_df, 
@@ -1490,7 +1622,7 @@ server <- function(input, output, session) {
                max_points = ifelse(is.na(max_points), 0, max_points)) 
   
       # Run simulation function
-      simulations$results <- simulation(answers_df, answers_entry_df, 
+      simulations$results <- simulation(answers_df, answers_entry_df, pathways$data,
                                         iterations = input$n_sim, lambda = input$lambda_sim, 
                                         w1 = input$w1_sim , w2 = input$w2_sim)
       
@@ -1526,6 +1658,7 @@ server <- function(input, output, session) {
   })
   
   output$sim_results <- renderDT({
+    # req()
     req(simulations$summary)
     datatable(simulations$summary |> 
                 mutate(variable = c("Entry A*", "Entry B**", "Establishment", 
@@ -1570,6 +1703,7 @@ server <- function(input, output, session) {
     simulations$data <- dbReadTable(con(), "simulations")
     
     simulations$results <- NULL
+    simulations$summary <- NULL
     
     shinyalert(
       title = "Success",
@@ -1665,9 +1799,9 @@ server <- function(input, output, session) {
           if (duplicate_sci) "Scientific name already exists." else NULL,
           if (duplicate_eppo) "EPPO code already exists." else NULL,
           if (duplicate_gbif) "GBIF taxon key already exists." else NULL,
-          sep = "\n"
+          sep = "<br>"
         ),
-        type = "error"
+        type = "error", html = TRUE
       )
       return()
     }
@@ -1692,8 +1826,8 @@ server <- function(input, output, session) {
       type = "success"
     )
     
-    removeModal()
     update_options(assessors$data, pests$data, taxa$data, quaran$data, pathways$data, session)
+    removeModal()
   })
   
   # Assessors ----
@@ -1715,13 +1849,29 @@ server <- function(input, output, session) {
     dbExecute(con(), "INSERT INTO assessors(firstName, lastName, email) VALUES(?,?,?)",
               params = list(input$new_name, input$new_last, input$new_email))
     assessors$data <- dbReadTable(con(), "assessors")
-    assessors$data$label <- paste(assessors$data$firstName, assessors$data$lastName)
-    removeModal()
+    assessors$data$fullName <- paste(assessors$data$firstName, assessors$data$lastName)
     update_options(assessors$data, pests$data, taxa$data, quaran$data, pathways$data, session)
+    removeModal()
   })
   
   # END ----
-  session$onSessionEnded(function() {
-    stopApp()
-  })
+  # session$onSessionEnded(function() {
+  #   message("ending session")
+  #   
+  #   try({
+  #     if (dbIsValid(consql)) {
+  #       dbExecute(consql, "
+  #         UPDATE dbStatus
+  #            SET inUse = 0,
+  #                timeStamp = CURRENT_TIMESTAMP
+  #          WHERE rowid = (SELECT MAX(rowid) FROM dbStatus)")
+  #     }
+  #   }, silent = TRUE)
+  # 
+  #   # Clean up
+  #   try(DBI::dbDisconnect(consql), silent = TRUE)
+  #   
+  #   
+  #   # stopApp()
+  # })
 } # END
