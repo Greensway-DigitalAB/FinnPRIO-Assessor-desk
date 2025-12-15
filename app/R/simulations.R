@@ -43,7 +43,6 @@ generate_inclusion_exclusion_score <- function(score_matrix) {
   return(result)
 }
 
-
 # Main simulation function
 #' @param answers Data frame containing general assessment answers.
 #' @param answers_entry Data frame containing entry pathway specific answers.
@@ -69,14 +68,16 @@ simulation <- function(answers, answers_entry, pathways,
   colnames(scorePathway) <- paste0("path", used_pathways)
   dimnames(scorePathway)[[3]] <- c("A", "B")
 
-  ENT1 <- rpert_from_tag(answers, tag = "ENT1")
+  ENT1 <- rpert_from_tag(answers, tag = "ENT1", iterations, lambda)
   
-  for (p in used_pathways){
+  # for (p in used_pathways){
+  for (up in 1:length(used_pathways)) {
+    p <- used_pathways[up]
     g <- pathways |> filter(idPathway == p) |> pull(group)
-    ENT2A <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT2A")
-    ENT2B <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT2B")
-    ENT3 <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT3")
-    ENT4 <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT4")
+    ENT2A <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT2A", iterations, lambda)
+    ENT2B <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT2B", iterations, lambda)
+    ENT3 <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT3", iterations, lambda)
+    ENT4 <- rpert_from_tag(answers_entry |> filter(idpathway == p), tag = "ENT4", iterations, lambda)
     
     ENT3A <- ENT3
     
@@ -108,7 +109,7 @@ simulation <- function(answers, answers_entry, pathways,
       TRUE ~ ENT3B  # keep original value if no condition is met
     )
     
-    scores[, paste0("path",p), "B", 1] <- ((ENT1 * ENT2A * ENT4) / 27)
+    scores[, paste0("path",p), "B", 1] <- ((ENT1 * ENT2B * ENT4) / 27)
     scores[, paste0("path",p), "B", 2] <- ((ENT2B * ENT4) / 9)
     scores[, paste0("path",p), "B", 3] <- ((ENT1 * ENT2B * ENT3B * ENT4) / 81)
     
@@ -125,10 +126,10 @@ simulation <- function(answers, answers_entry, pathways,
   ENTRYA <- generate_inclusion_exclusion_score(scorePathway[,,"A"])
   ENTRYB <- generate_inclusion_exclusion_score(scorePathway[,,"B"])
 
-  EST1 <- rpert_from_tag(answers, tag = "EST1")
-  EST2 <- rpert_from_tag(answers, tag = "EST2")
-  EST3 <- rpert_from_tag(answers, tag = "EST3")
-  EST4 <- rpert_from_tag(answers, tag = "EST4")
+  EST1 <- rpert_from_tag(answers, tag = "EST1", iterations, lambda)
+  EST2 <- rpert_from_tag(answers, tag = "EST2", iterations, lambda)
+  EST3 <- rpert_from_tag(answers, tag = "EST3", iterations, lambda)
+  EST4 <- rpert_from_tag(answers, tag = "EST4", iterations, lambda)
   
   
   SPR1 <- case_when(
@@ -165,10 +166,10 @@ simulation <- function(answers, answers_entry, pathways,
   INVASIONA <- ENTRYA * ESTABLISHMENT
   INVASIONB <- ENTRYB * ESTABLISHMENT
   
-  IMP1 <- rpert_from_tag(answers, tag = "IMP1")
-  IMP2 <- rpert_from_tag(answers, tag = "IMP2")
-  IMP3 <- rpert_from_tag(answers, tag = "IMP3")
-  IMP4 <- rpert_from_tag(answers, tag = "IMP4")
+  IMP1 <- rpert_from_tag(answers, tag = "IMP1", iterations, lambda)
+  IMP2 <- rpert_from_tag(answers, tag = "IMP2", iterations, lambda)
+  IMP3 <- rpert_from_tag(answers, tag = "IMP3", iterations, lambda)
+  IMP4 <- rpert_from_tag(answers, tag = "IMP4", iterations, lambda)
   
   IMPACT <- ((w1 * (IMP1 + IMP2)) + 
                (w2 * (IMP3 + IMP4))) / 9
@@ -176,11 +177,11 @@ simulation <- function(answers, answers_entry, pathways,
   RISKA <- IMPACT * INVASIONA
   RISKB <- IMPACT * INVASIONB
   
-  MAN1 <- rpert_from_tag(answers, tag = "MAN1")
-  MAN2 <- rpert_from_tag(answers, tag = "MAN2")
-  MAN3 <- rpert_from_tag(answers, tag = "MAN3")
-  MAN4 <- rpert_from_tag(answers, tag = "MAN4")
-  MAN5 <- rpert_from_tag(answers, tag = "MAN5")
+  MAN1 <- rpert_from_tag(answers, tag = "MAN1", iterations, lambda)
+  MAN2 <- rpert_from_tag(answers, tag = "MAN2", iterations, lambda)
+  MAN3 <- rpert_from_tag(answers, tag = "MAN3", iterations, lambda)
+  MAN4 <- rpert_from_tag(answers, tag = "MAN4", iterations, lambda)
+  MAN5 <- rpert_from_tag(answers, tag = "MAN5", iterations, lambda)
   
   # PREVENTABILITY <- pmax(MAN1, MAN2, MAN3)
   # CONTROLLABILITY <- pmax(MAN4, MAN5)
