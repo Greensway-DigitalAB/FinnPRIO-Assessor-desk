@@ -103,9 +103,9 @@ simulation <- function(answers, answers_entry, pathways,
     
     ## Dependant on pathways "group" and simplified 
     scorePathway[,paste0("path",p), "A"] <- case_when(
-      g == 1 ~ ((ENT1 * ENT2A * ENT3A * ENT4) / 81)
-      g == 2 ~ ((ENT1 * ENT2A * ENT4) / 27)
-      g == 3 ~ ((ENT2A * ENT4) / 9)
+      g == 1 ~ ((ENT1 * ENT2A * ENT3A * ENT4) / 81),
+      g == 2 ~ ((ENT1 * ENT2A * ENT4) / 27),
+      g == 3 ~ ((ENT2A * ENT4) / 9),
       .default = NA # Default case
     )
 
@@ -131,9 +131,9 @@ simulation <- function(answers, answers_entry, pathways,
     
     ## Dependant on pathways "group" and simplified 
     scorePathway[,paste0("path",p), "B"] <- case_when(
-      g == 1 ~ ((ENT1 * ENT2B * ENT3B * ENT4) / 81)
-      g == 2 ~ ((ENT1 * ENT2B * ENT4) / 27)
-      g == 3 ~ ((ENT2B * ENT4) / 9)
+      g == 1 ~ ((ENT1 * ENT2B * ENT3B * ENT4) / 81),
+      g == 2 ~ ((ENT1 * ENT2B * ENT4) / 27),
+      g == 3 ~ ((ENT2B * ENT4) / 9),
       .default = NA # Default case
     )
     
