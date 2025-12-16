@@ -57,11 +57,11 @@ simulation <- function(answers, answers_entry, pathways,
                        w1 = 0.5, w2 = 0.5){
   
   used_pathways <- unique(answers_entry$idpathway)
-  scores <- array(0, dim = c(iterations, length(used_pathways), 2, 3)) #A, B
-  rownames(scores) <- paste0("sim", 1:iterations)
-  colnames(scores) <- paste0("path",used_pathways)
-  dimnames(scores)[[3]] <- c("A", "B")
-  dimnames(scores)[[4]] <- c("1", "2", "3")
+  # scores <- array(0, dim = c(iterations, length(used_pathways), 2, 3)) #A, B
+  # rownames(scores) <- paste0("sim", 1:iterations)
+  # colnames(scores) <- paste0("path",used_pathways)
+  # dimnames(scores)[[3]] <- c("A", "B")
+  # dimnames(scores)[[4]] <- c("1", "2", "3")
   
   scorePathway <- array(0, dim = c(iterations, length(used_pathways), 2)) #A, B
   rownames(scorePathway) <- paste0("sim", 1:iterations)
@@ -89,15 +89,23 @@ simulation <- function(answers, answers_entry, pathways,
       TRUE ~ ENT3A  # keep original value if no condition is met
     )
     
-    scores[, paste0("path",p), "A", 1] <- ((ENT1 * ENT2A * ENT4) / 27)
-    scores[, paste0("path",p), "A", 2] <- ((ENT2A * ENT4) / 9)
-    scores[, paste0("path",p), "A", 3] <- ((ENT1 * ENT2A * ENT3A * ENT4) / 81)
+    # scores[, paste0("path",p), "A", 1] <- ((ENT1 * ENT2A * ENT4) / 27)
+    # scores[, paste0("path",p), "A", 2] <- ((ENT2A * ENT4) / 9)
+    # scores[, paste0("path",p), "A", 3] <- ((ENT1 * ENT2A * ENT3A * ENT4) / 81)
+    # 
+    # ## Note make it dependant on pathways "group". Could be simplified 
+    # scorePathway[,paste0("path",p), "A"] <- case_when(
+    #   g == 1 ~ scores[, paste0("path",p), "A", 3], #((ENT1*ENT2A*ENT3A*ENT4)/81)
+    #   g == 2 ~ scores[, paste0("path",p), "A", 1], #((ENT1*ENT2A*ENT4)/27)
+    #   g == 3 ~ scores[, paste0("path",p), "A", 2], #((ENT2A*ENT4)/9)
+    #   .default = NA # Default case
+    # )
     
-    ## Note make it dependant on pathways "group". Could be simplified 
+    ## Dependant on pathways "group" and simplified 
     scorePathway[,paste0("path",p), "A"] <- case_when(
-      g == 1 ~ scores[, paste0("path",p), "A", 2], #((ENT2A*ENT4)/9)
-      g == 2 ~ scores[, paste0("path",p), "A", 1], #((ENT1*ENT2A*ENT4)/27)
-      g == 3 ~ scores[, paste0("path",p), "A", 3], #((ENT1*ENT2A*ENT3A*ENT4)/81)
+      g == 1 ~ ((ENT1 * ENT2A * ENT3A * ENT4) / 81)
+      g == 2 ~ ((ENT1 * ENT2A * ENT4) / 27)
+      g == 3 ~ ((ENT2A * ENT4) / 9)
       .default = NA # Default case
     )
 
@@ -109,15 +117,23 @@ simulation <- function(answers, answers_entry, pathways,
       TRUE ~ ENT3B  # keep original value if no condition is met
     )
     
-    scores[, paste0("path",p), "B", 1] <- ((ENT1 * ENT2B * ENT4) / 27)
-    scores[, paste0("path",p), "B", 2] <- ((ENT2B * ENT4) / 9)
-    scores[, paste0("path",p), "B", 3] <- ((ENT1 * ENT2B * ENT3B * ENT4) / 81)
+    # scores[, paste0("path",p), "B", 1] <- ((ENT1 * ENT2B * ENT4) / 27)
+    # scores[, paste0("path",p), "B", 2] <- ((ENT2B * ENT4) / 9)
+    # scores[, paste0("path",p), "B", 3] <- ((ENT1 * ENT2B * ENT3B * ENT4) / 81)
+    # 
+    # ## OBS equal is not consider 
+    # scorePathway[,paste0("path",p), "B"] <- case_when(
+    #   g == 1 ~ scores[, paste0("path",p), "B", 3], #((ENT1*ENT2A*ENT3A*ENT4)/81)
+    #   g == 2 ~ scores[, paste0("path",p), "B", 1], #((ENT1*ENT2A*ENT4)/27)
+    #   g == 3 ~ scores[, paste0("path",p), "B", 2], #((ENT2A*ENT4)/9)
+    #   .default = NA # Default case
+    # )
     
-    ## OBS equal is not consider 
+    ## Dependant on pathways "group" and simplified 
     scorePathway[,paste0("path",p), "B"] <- case_when(
-      g == 1 ~ scores[, paste0("path",p), "B", 2], #((ENT2A*ENT4)/9)
-      g == 2 ~ scores[, paste0("path",p), "B", 1], #((ENT1*ENT2A*ENT4)/27)
-      g == 3 ~ scores[, paste0("path",p), "B", 3], #((ENT1*ENT2A*ENT3A*ENT4)/81)
+      g == 1 ~ ((ENT1 * ENT2B * ENT3B * ENT4) / 81)
+      g == 2 ~ ((ENT1 * ENT2B * ENT4) / 27)
+      g == 3 ~ ((ENT2B * ENT4) / 9)
       .default = NA # Default case
     )
     
