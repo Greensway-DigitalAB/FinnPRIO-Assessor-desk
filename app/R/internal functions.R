@@ -45,7 +45,6 @@ render_quest_tab <- function(tag, qid, question,
   input_names <- glue("{tag}{qid}_{options}")
   input_text <- glue("{tag}{qid}_{texts}")
   values <- c("Minimum", "Likely", "Maximum")
-  
   table_data = matrix(
     values, nrow = length(options), ncol = length(values), byrow = TRUE,
     dimnames = list(input_names, values)
@@ -55,7 +54,8 @@ render_quest_tab <- function(tag, qid, question,
     if (!is.null(answers)) {
       is_checked <- answers |> 
         filter(ques_tag_opt == rownames(table_data)[i]) |> 
-        select(Minimum, Likely, Maximum)
+        select(Minimum, Likely, Maximum) |> 
+        as.logical() #new
     } else {
       is_checked <- c(FALSE, FALSE, FALSE)
     }
@@ -63,65 +63,62 @@ render_quest_tab <- function(tag, qid, question,
     table_data[i, ] = sprintf(
       '<input type="checkbox" name="%s" value="%s" %s/>', # the last s if for adding 'checked'
       input_names[i], table_data[i, ], ifelse(is_checked, ' checked="checked"', ""))
+      # input_names[i], colnames(table_data), ifelse(is_checked, ' checked="checked"', ""))
   }
   
+  # Build data frame for DT: group_id (hidden), visible text, then checkboxes
+  dt_data <- cbind(group_id = input_names, texts = texts, table_data)
   
   colnames <- if (type == "minmax") {
-    c("Options", "Minimum", "Likely", "Maximum")
+    c("group_id", "Options", "Minimum", "Likely", "Maximum")
   } else {
-    c("Sub-questions, check the box if the answer is Yes", "Minimum", "Likely", "Maximum")
+    c("group_id", "Sub-questions, check the box if the answer is Yes", "Minimum", "Likely", "Maximum")
   }
-  # JavaScript callback: conditional based on type
   
-  js_callback <- if (type == "minmax") {
-    JS("
-      table.rows().every(function(i, tab, row) {
-        var $this = $(this.node());
-        $this.attr('id', this.data()[0]);
-        $this.addClass('shiny-input-checkboxgroup');
-      });
+  # JS: set row id = hidden group_id (this makes id == name)
+  js_base <- "
+    table.rows().every(function() {
+      var $row = $(this.node());
+      var data = this.data();
+      var groupId = data[0]; // hidden first column
+      $row.attr('id', groupId);
+      $row.addClass('shiny-input-checkboxgroup shiny-input-container');
+      // Ensure inner checkboxes have the correct name (if not already)
+      $row.find('input[type=checkbox]').attr('name', groupId);
+    });
 
-      Shiny.unbindAll(table.table().node());
-      Shiny.bindAll(table.table().node());
-
-      var tableId = table.table().node().id || 'table_' + Math.random().toString(36).substr(2, 9);
-      var limits = { Minimum: 1, Likely: 1, Maximum: 1 };
-
-      $('#' + tableId + ' input[type=checkbox]').off('change').on('change', function() {
-        var checkbox = this;
-        var value = checkbox.value;
-
-        var totalChecked = $('#' + tableId + ' input[type=checkbox][value=' + value + ']:checked').length;
-
-        if (totalChecked > limits[value]) {
-          console.warn('Limit reached for ' + value);
-          $(checkbox).prop('checked', false);
-        }
-      });
-    ")
-  } else {
-    JS("
-      table.rows().every(function(i, tab, row) {
-        var $this = $(this.node());
-        $this.attr('id', this.data()[0]);
-        $this.addClass('shiny-input-checkboxgroup');
-      });
-
-      Shiny.unbindAll(table.table().node());
-      Shiny.bindAll(table.table().node());
-    ")
-  }
+    Shiny.unbindAll(table.table().node());
+    Shiny.bindAll(table.table().node());
+  "
+  
+  # Optional: your min/max per column limit logic
+  js_limit <- "
+    var tableId = table.table().node().id || 'table_' + Math.random().toString(36).substr(2, 9);
+    var limits = { Minimum: 1, Likely: 1, Maximum: 1 };
+    $('#' + tableId + ' input[type=checkbox]').off('change').on('change', function() {
+      var checkbox = this;
+      var value = checkbox.value;
+      var totalChecked = $('#' + tableId + ' input[type=checkbox][value=' + value + ']:checked').length;
+      if (totalChecked > limits[value]) {
+        console.warn('Limit reached for ' + value);
+        $(checkbox).prop('checked', false).trigger('change');
+      }
+    });
+  "
+  
+  js_callback <- if (type == "minmax") JS(paste0(js_base, js_limit)) else JS(js_base)
   
   tagList(
     datatable(
-      cbind(texts, table_data), #table_data,
+      dt_data, #cbind(texts, table_data), #table_data,
       colnames = colnames,
       editable = TRUE,
       escape = FALSE,   # allow HTML rendering
       width = "600px",
       selection = "none", 
       # server = FALSE,
-      rownames = TRUE,
+      # rownames = TRUE,
+      rownames = FALSE,
       options = list(dom = 't', 
                      paging = FALSE, 
                      autoWidth = FALSE,
@@ -138,8 +135,8 @@ render_quest_tab <- function(tag, qid, question,
 }
 
 render_severity_warning <- function(groupTag, answers) {
-  severity_map <- c(a = 1, b = 2, c = 3, d = 4, e = 5, f = 6, g = 7, h = 8, i = 9,
-                    j = 10, k = 11, l = 12, m = 13, n = 14, o = 15, p = 16, q = 17)
+  severity_map <- setNames(1:17, letters[1:17])
+  # c(a = 1, b = 2, c = 3, d = 4, e = 5, f = 6, g = 7, h = 8, i = 9, j = 10, k = 11, l = 12, m = 13, n = 14, o = 15, p = 16, q = 17)
   focal_ans <- answers |> 
     filter(question == groupTag) |> 
     select(minimum, likely, maximum) |> 
